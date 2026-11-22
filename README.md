@@ -553,9 +553,9 @@ PWAはGitHub Pagesへpushすると、GitHub Actionsがビルド・デプロイ�
 **注意：** 家計・資産などの個人データやGASのアクセスキーは、公開リポジトリへ追加しないでください。
 
 
-## V1.8.14 更新・GitHub Pagesへの反映
+## V1.8.15 更新・GitHub Pagesへの反映
 
-1. V1.8.14 ZIPを展開し、既存のローカルリポジトリへ上書きコピーします（`.git`フォルダーは保持）。
+1. V1.8.15 ZIPを展開し、既存のローカルリポジトリへ上書きコピーします（`.git`フォルダーは保持）。
 2. Git Bashでビルドを確認します。
 
 ```bash
@@ -569,7 +569,7 @@ npm run build
 ```bash
 git status
 git add .
-git commit -m "Release V1.8.14 annual asset breakdown"
+git commit -m "Release V1.8.15 annual asset breakdown"
 git push
 ```
 

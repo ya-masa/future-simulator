@@ -232,6 +232,19 @@ const annualCashflowChartData = computed(() => ({
     borderColor: '#8b6848', backgroundColor: 'transparent', borderDash: [5, 3], tension: 0.22,
   }],
 }))
+const nisaChartData = computed(() => ({
+  labels: simulationResult.value.annualResults.map((item) => `${item.year}年`),
+  datasets: [{
+    label: 'NISA評価額',
+    data: simulationResult.value.annualResults.map((item) => Number(item.assetCategories?.nisa || 0)),
+    borderColor: '#78936a',
+    backgroundColor: 'rgba(120, 147, 106, 0.12)',
+    pointBackgroundColor: '#78936a',
+    pointRadius: 2,
+    fill: true,
+    tension: 0.22,
+  }],
+}))
 const scenarioChartData = computed(() => ({
   labels: scenarioResults.value[0]?.result.annualResults.map((item) => `${item.year}年`) || [],
   datasets: scenarioResults.value.map((entry, index) => ({
@@ -408,6 +421,7 @@ function syncResultScroll(source) {
   const scrollElements = {
     assets: resultAssetScroll.value,
     cashflow: resultCashflowScroll.value,
+    nisa: resultNisaScroll.value,
     table: resultTableScroll.value,
   }
   const sourceElement = scrollElements[source]
@@ -1671,6 +1685,19 @@ initializeSavedPlanLibrary(householdData.value)
           </div>
         </section>
 
+        <section class="content-card chart-card nisa-chart-card">
+          <div class="section-heading"><div><p class="eyebrow">NISA PROJECTION</p><h3>NISA資産の推移</h3></div><span class="unit-label">円</span></div>
+          <p class="helper-note">NISA区分に登録した資産の年末評価額を表示します。積立設定・運用条件の変更は再計算後に反映されます。</p>
+          <div ref="resultNisaScroll" class="year-axis-scroll" aria-label="NISA資産グラフの横スクロール" @scroll="syncResultScroll('nisa')">
+            <div class="year-axis-content" :style="{ width: resultContentWidth }">
+              <div class="year-axis-spacer" aria-hidden="true"></div>
+              <div class="year-axis-chart" :style="{ width: resultChartWidth }">
+                <Line :data="nisaChartData" :options="yearlyChartOptions" />
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section class="content-card chart-card">
           <div class="section-heading"><div><p class="eyebrow">ANNUAL CASHFLOW</p><h3>収入・支出・年間収支の推移</h3></div><span class="unit-label">円／年</span></div>
           <div ref="resultCashflowScroll" class="year-axis-scroll" aria-label="年間収支グラフの横スクロール" @scroll="syncResultScroll('cashflow')">
@@ -1723,7 +1750,7 @@ initializeSavedPlanLibrary(householdData.value)
           <div><h2>アプリの設定</h2><p>表示や動作に関する設定を、今後の段階で順次追加します。</p></div>
         </section>
         <section class="content-card editor-card">
-          <div class="section-heading"><div><p class="eyebrow">CURRENT SETTINGS</p><h3>現在の設定・保存方式</h3></div><span class="status-pill">V1.8.14</span></div>
+          <div class="section-heading"><div><p class="eyebrow">CURRENT SETTINGS</p><h3>現在の設定・保存方式</h3></div><span class="status-pill">V1.8.15</span></div>
           <div class="year-detail-list">
             <div><span>データ保存</span><strong>IndexedDB（主保存）</strong></div>
             <div><span>互換保存</span><strong>localStorage（ミラー）</strong></div>
