@@ -1,4 +1,8 @@
-# 未来シミュレーター v1.8.13
+# 未来シミュレーター v1.8.14
+
+## v1.8.14 変更点
+- 詳細結果の「年次シミュレーション一覧」に「年初資産内訳」を追加。現金・預貯金・NISA・課税口座・債券・その他を年度ごとに表示します。
+
 
 # v1.8.13 変更点
 
@@ -547,3 +551,26 @@ git push
 PWAはGitHub Pagesへpushすると、GitHub Actionsがビルド・デプロイします。ホーム画面に追加済みのアプリは、サービスワーカーによる更新反映に少し時間がかかる場合があります。古い画面が残る場合は、ブラウザでサイトを再読み込みしてから確認してください。
 
 **注意：** 家計・資産などの個人データやGASのアクセスキーは、公開リポジトリへ追加しないでください。
+
+
+## V1.8.14 更新・GitHub Pagesへの反映
+
+1. V1.8.14 ZIPを展開し、既存のローカルリポジトリへ上書きコピーします（`.git`フォルダーは保持）。
+2. Git Bashでビルドを確認します。
+
+```bash
+npm install
+npm test
+npm run build
+```
+
+3. 変更をコミットしてpushします。
+
+```bash
+git status
+git add .
+git commit -m "Release V1.8.14 annual asset breakdown"
+git push
+```
+
+4. GitHub ActionsのDeploy to GitHub Pagesが成功したら、公開サイトを再読み込みします。PWAはサービスワーカー経由で更新されます。

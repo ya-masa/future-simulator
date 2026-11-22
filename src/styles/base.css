@@ -316,6 +316,13 @@ tbody tr:hover { background: #fcf9f4; }
 .annual-matrix tbody .annual-row-label { background: var(--paper); }
 .annual-matrix tbody tr:hover td { background: #fcf9f4; }
 .annual-matrix td { cursor: pointer; }
+.annual-matrix td.annual-breakdown-cell {
+  text-align: left;
+  white-space: pre-line;
+  font-size: 9px;
+  line-height: 1.55;
+  color: var(--muted);
+}
 .annual-matrix .selected-year-cell { background: #f8f0e4 !important; box-shadow: inset 0 0 0 1px #d8c5ac; }
 .year-header-button {
   padding: 2px 0;
@@ -435,7 +442,7 @@ tbody tr:hover { background: #fcf9f4; }
 @media (max-width: 640px) { .opening-assets-columns { grid-template-columns: 1fr; gap: 12px; } }
 
 
-/* v1.8.13: compact comparison selector and five-item mobile navigation */
+/* v1.8.14: show opening asset category breakdown in annual simulation table */
 .compare-mode-switch {
   display: flex;
   gap: 8px;

@@ -340,6 +340,11 @@ const annualTableRows = computed(() => {
     })),
     { label: '年初金融資産', get: (row) => formatYen(row.openingFinancialAssets) },
     {
+      label: '年初資産内訳',
+      get: (row) => formatAnnualAssetBreakdown(row.openingAssetCategories),
+      classFor: () => 'annual-breakdown-cell',
+    },
+    {
       label: '前年比金融資産増減',
       get: (row, index) => {
         const change = getYearOverYearAssetChange(results, index)
@@ -415,6 +420,12 @@ function syncResultScroll(source) {
 }
 const formatYen = (value) => new Intl.NumberFormat('ja-JP', { style: 'currency', currency: 'JPY', maximumFractionDigits: 0 }).format(value || 0)
 const openingAssetCategoryLabels = { cash: '現金', deposit: '預貯金', nisa: 'NISA', taxable: '課税口座・一般口座', bond: '債券', other: 'その他' }
+function formatAnnualAssetBreakdown(categories = {}) {
+  const rows = Object.entries(categories || {})
+    .filter(([, amount]) => Number(amount || 0) !== 0)
+    .map(([key, amount]) => `${openingAssetCategoryLabels[key] || key} ${formatYen(amount)}`)
+  return rows.length ? rows.join('\n') : '内訳なし'
+}
 const openingAssetCategoryRows = computed(() => Object.entries(selectedAnnualResult.value?.openingAssetCategories || {})
   .map(([key, amount]) => ({ key, label: openingAssetCategoryLabels[key] || key, amount: Number(amount || 0) }))
   .filter((row) => row.amount !== 0))
@@ -1712,7 +1723,7 @@ initializeSavedPlanLibrary(householdData.value)
           <div><h2>アプリの設定</h2><p>表示や動作に関する設定を、今後の段階で順次追加します。</p></div>
         </section>
         <section class="content-card editor-card">
-          <div class="section-heading"><div><p class="eyebrow">CURRENT SETTINGS</p><h3>現在の設定・保存方式</h3></div><span class="status-pill">V1.8.13</span></div>
+          <div class="section-heading"><div><p class="eyebrow">CURRENT SETTINGS</p><h3>現在の設定・保存方式</h3></div><span class="status-pill">V1.8.14</span></div>
           <div class="year-detail-list">
             <div><span>データ保存</span><strong>IndexedDB（主保存）</strong></div>
             <div><span>互換保存</span><strong>localStorage（ミラー）</strong></div>
@@ -1800,7 +1811,7 @@ initializeSavedPlanLibrary(householdData.value)
         <section class="content-card table-card"><div class="section-heading"><div><p class="eyebrow">SCENARIO SUMMARY</p><h3>比較一覧</h3></div></div><div class="table-scroll"><table><thead><tr><th>シナリオ</th><th>最終金融資産</th><th>最終負債</th><th>最終純資産</th><th>累計取り崩し</th><th>現金不足累計</th><th>初回現金不足年</th></tr></thead><tbody><tr v-for="entry in scenarioResults" :key="entry.scenario.scenarioId"><td>{{ entry.scenario.name }}</td><td>{{ formatYen(entry.result.summary.endFinancialAssets) }}</td><td>{{ formatYen(entry.result.summary.endLiabilities) }}</td><td>{{ formatYen(entry.result.summary.endNetWorth) }}</td><td>{{ formatYen(entry.result.summary.totalWithdrawals) }}</td><td>{{ formatYen(entry.result.summary.totalCashShortfall) }}</td><td>{{ entry.result.summary.firstCashShortfallYear ?? 'なし' }}</td></tr></tbody></table></div></section>
         <section class="content-card notice-card"><h3>シナリオの前提</h3><ul><li>標準は登録した基本条件をそのまま使用します。</li><li>楽観・悲観は標準条件に対する年率差を適用します。</li><li>投資利回りの差は現金・預金以外の資産に適用します。</li><li>これは条件を変えた比較試算であり、将来の結果を保証するものではありません。</li></ul></section>
       </template>
-      <footer class="page-footer">未来シミュレーター v1.8.13 · 入力データはこのブラウザ内に自動保存されます。</footer>
+      <footer class="page-footer">未来シミュレーター v1.8.14 · 入力データはこのブラウザ内に自動保存されます。</footer>
     </main>
   </div>
 </template>
