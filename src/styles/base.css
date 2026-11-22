@@ -86,7 +86,7 @@ tbody tr:hover { background: #fcf9f4; }
     box-shadow: 0 -4px 18px #5c432012;
   }
   .brand-mark, .brand-copy, .sidebar-footer { display: none; }
-  .side-nav { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 2px; width: 100%; margin: 0; }
+  .side-nav { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2px; width: 100%; margin: 0; }
   .side-nav button {
     min-width: 0; min-height: 51px; padding: 5px 1px; display: flex; flex-direction: column;
     justify-content: center; align-items: center; gap: 3px; border-radius: 8px;
@@ -193,7 +193,7 @@ tbody tr:hover { background: #fcf9f4; }
   .nav-icon { font-size: 16px; }
 }
 @media (max-width: 640px) {
-  .side-nav { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); flex-wrap: initial; justify-content: initial; }
+  .side-nav { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); flex-wrap: initial; justify-content: initial; }
   .side-nav button { padding: 5px 1px; font-size: 10px; }
 }
 
@@ -433,3 +433,37 @@ tbody tr:hover { background: #fcf9f4; }
 .opening-assets-list span { overflow-wrap: anywhere; color: var(--muted); }
 .opening-assets-list strong { text-align: right; white-space: nowrap; }
 @media (max-width: 640px) { .opening-assets-columns { grid-template-columns: 1fr; gap: 12px; } }
+
+
+/* v1.8.13: compact comparison selector and five-item mobile navigation */
+.compare-mode-switch {
+  display: flex;
+  gap: 8px;
+  margin: 22px 0 8px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #eee6da;
+}
+.compare-mode-switch button {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 11px 12px;
+  border: 0;
+  border-radius: 8px;
+  color: #71675b;
+  background: transparent;
+  font-weight: 600;
+  cursor: pointer;
+}
+.compare-mode-switch button.active {
+  color: var(--coffee-dark);
+  background: #fffdf9;
+  box-shadow: 0 2px 8px #5b40200d;
+}
+@media (max-width: 640px) {
+  .side-nav { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .side-nav button { min-height: 54px; }
+  .compare-mode-switch { margin-top: 16px; }
+  .compare-mode-switch button { padding: 10px 5px; font-size: 12px; }
+}

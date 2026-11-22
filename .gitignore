@@ -1,10 +1,10 @@
-# Dependecies
+# Dependencies
 node_modules/
 
-# Build output
+# Vite build output
 dist/
 
-# Local environment
+# Local environment and secrets
 .env
 .env.*
 !.env.example

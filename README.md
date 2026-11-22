@@ -1,4 +1,13 @@
-# 未来シミュレーター v1.8.11
+# 未来シミュレーター v1.8.13
+
+# v1.8.13 変更点
+
+- メインメニューを「ホーム」「データ入力」「詳細結果」「比較」「設定」の5項目に整理しました。
+- シナリオ比較と保存プラン比較を、比較画面内の切り替えで選択できるようにしました。
+- データ管理を設定画面内から開けるように統合しました。
+- スマートフォンの下部ナビゲーションを5列にし、1行で表示するよう調整しました。
+- 既存の計算処理・保存データ形式・PWA設定・GitHub Pagesデプロイ設定は維持しています。
+
 
 ## v1.8.11 変更点
 - 年次シミュレーション一覧に給与・再雇用収入、賞与収入、年金収入、退職金収入、その他・臨時収入、金融資産収入の各行を追加しました。
@@ -489,7 +498,7 @@ URLとアクセスキーを知る人がAPIを呼び出せます。第三者に�
 - 従来の税制区分 `nisa` は維持し、既存のNISA集計や保存データとの互換性を保持。
 
 
-## GitHub Pages / PWA (V1.8.12)
+## GitHub Pages / PWA (V1.8.13)
 
 This version is configured for the project site:
 
@@ -510,3 +519,31 @@ This version is configured for the project site:
 ### Data safety
 
 GitHub Pages hosts the app's static files; it does not automatically migrate or synchronize browser-stored data between PC and phone. Export/backup existing data before switching origins. Do not commit personal financial data, credentials, API keys, or private configuration files to the public repository. Review any cloud-storage integration separately before publishing.
+
+## V1.8.13 更新・GitHub Pagesへの反映
+
+既存のGitHubリポジトリを利用している場合、新しいリポジトリを作る必要はありません。
+
+1. V1.8.13 ZIPを展開します。
+2. 展開したプロジェクト内のファイルを、既存のローカルリポジトリ `future-simulator` に上書きコピーします。既存リポジトリの `.git` フォルダーは削除・上書きしないでください。
+3. Git Bashでリポジトリへ移動し、依存関係を更新してビルドします。
+
+```bash
+npm install
+npm run build
+```
+
+4. ビルドが成功したら変更をコミットしてGitHubへ送信します。
+
+```bash
+git status
+git add .gitignore package.json package-lock.json README.md index.html vite.config.js src public gas .github
+git commit -m "Release V1.8.13 mobile navigation update"
+git push
+```
+
+5. GitHubのActionsで `Deploy to GitHub Pages` が成功したことを確認します。成功後、スマートフォンでサイトを開き、更新された画面を確認してください。
+
+PWAはGitHub Pagesへpushすると、GitHub Actionsがビルド・デプロイします。ホーム画面に追加済みのアプリは、サービスワーカーによる更新反映に少し時間がかかる場合があります。古い画面が残る場合は、ブラウザでサイトを再読み込みしてから確認してください。
+
+**注意：** 家計・資産などの個人データやGASのアクセスキーは、公開リポジトリへ追加しないでください。

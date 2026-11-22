@@ -114,6 +114,8 @@ for (const event of householdData.value.futureEvents) { if (!event.type) event.t
 initializeSavedPlanLibrary(householdData.value)
 try { localStorage.setItem(STORAGE_KEY, JSON.stringify(householdData.value)) } catch { /* IndexedDBを主保存先として継続 */ }
 const activeTab = ref('overview')
+const compareMode = ref('scenarios')
+const settingsSection = ref('settings')
 const activeDataCategory = ref('household')
 const dataCategories = [
   { id: 'household', number: '01', title: '世帯・人物', description: '世帯情報・家族構成・退職金' },
@@ -1134,18 +1136,16 @@ initializeSavedPlanLibrary(householdData.value)
       <nav class="side-nav" aria-label="メインメニュー">
         <button :class="{ active: activeTab === 'overview' }" :aria-current="activeTab === 'overview' ? 'page' : undefined" @click="activeTab = 'overview'"><span class="nav-icon">⌂</span><span class="nav-label">ホーム</span></button>
         <button :class="{ active: activeTab === 'data' }" :aria-current="activeTab === 'data' ? 'page' : undefined" @click="activeTab = 'data'"><span class="nav-icon">▤</span><span class="nav-label">データ入力</span></button>
-        <button :class="{ active: activeTab === 'results' }" :aria-current="activeTab === 'results' ? 'page' : undefined" @click="activeTab = 'results'"><span class="nav-icon">⌁</span><span class="nav-label">試算結果</span></button>
-        <button :class="{ active: activeTab === 'scenarios' }" :aria-current="activeTab === 'scenarios' ? 'page' : undefined" @click="activeTab = 'scenarios'"><span class="nav-icon">⇄</span><span class="nav-label">シナリオ比較</span></button>
-        <button :class="{ active: activeTab === 'plans' }" :aria-current="activeTab === 'plans' ? 'page' : undefined" @click="activeTab = 'plans'"><span class="nav-icon">▱</span><span class="nav-label">保存プラン比較</span></button>
-        <button :class="{ active: activeTab === 'backup' }" :aria-current="activeTab === 'backup' ? 'page' : undefined" @click="activeTab = 'backup'"><span class="nav-icon">▣</span><span class="nav-label">データ管理</span></button>
-        <button :class="{ active: activeTab === 'settings' }" :aria-current="activeTab === 'settings' ? 'page' : undefined" @click="activeTab = 'settings'"><span class="nav-icon">⚙</span><span class="nav-label">設定</span></button>
+        <button :class="{ active: activeTab === 'results' }" :aria-current="activeTab === 'results' ? 'page' : undefined" @click="activeTab = 'results'"><span class="nav-icon">▥</span><span class="nav-label">詳細結果</span></button>
+        <button :class="{ active: activeTab === 'compare' }" :aria-current="activeTab === 'compare' ? 'page' : undefined" @click="activeTab = 'compare'"><span class="nav-icon">⇄</span><span class="nav-label">比較</span></button>
+        <button :class="{ active: activeTab === 'settings' }" :aria-current="activeTab === 'settings' ? 'page' : undefined" @click="activeTab = 'settings'; settingsSection = 'settings'"><span class="nav-icon">⚙</span><span class="nav-label">設定</span></button>
       </nav>
       <div class="sidebar-footer"><span class="status-dot"></span> 基本シミュレーション</div>
     </aside>
 
     <main class="main-content">
       <header class="topbar">
-        <div><p class="eyebrow">HOUSEHOLD FUTURE PLANNING</p><h1>{{ activeTab === 'data' ? 'データ入力' : activeTab === 'results' ? '試算結果' : activeTab === 'scenarios' ? 'シナリオ比較' : activeTab === 'plans' ? '保存プラン比較' : activeTab === 'backup' ? 'データ管理' : activeTab === 'settings' ? '設定' : 'ホーム' }}</h1></div>
+        <div><p class="eyebrow">HOUSEHOLD FUTURE PLANNING</p><h1>{{ activeTab === 'data' ? 'データ入力' : activeTab === 'results' ? '詳細結果' : activeTab === 'compare' ? '比較' : activeTab === 'settings' ? (settingsSection === 'data' ? 'データ管理' : '設定') : 'ホーム' }}</h1></div>
         <div class="topbar-actions">
           <span class="demo-label" :class="{ 'save-error': saveStatus === 'error' }">{{ saveMessage || 'ローカル保存対応' }}</span>
           <span v-if="cloudAutoSyncEnabled" class="cloud-header-sync" :class="{ pending: cloudSyncPending || cloudBusy, error: cloudConflict || cloudError }" :title="cloudMessage || cloudStatusLabel">
@@ -1156,6 +1156,11 @@ initializeSavedPlanLibrary(householdData.value)
       </header>
 
       <div v-if="simulationError" class="error-message">{{ simulationError }}</div>
+
+      <section v-if="activeTab === 'compare'" class="compare-mode-switch" aria-label="比較の種類">
+        <button type="button" :class="{ active: compareMode === 'scenarios' }" :aria-pressed="compareMode === 'scenarios'" @click="compareMode = 'scenarios'">シナリオ比較</button>
+        <button type="button" :class="{ active: compareMode === 'plans' }" :aria-pressed="compareMode === 'plans'" @click="compareMode = 'plans'">保存プラン比較</button>
+      </section>
 
       <template v-if="activeTab === 'overview'">
         <section class="intro-row">
@@ -1490,9 +1495,10 @@ initializeSavedPlanLibrary(householdData.value)
         <div class="bottom-action"><span>入力内容は自動保存されています。</span><button class="primary-button" @click="executeSimulation">保存内容で再計算する</button></div>
       </template>
 
-      <template v-else-if="activeTab === 'backup'">
+      <template v-else-if="activeTab === 'settings' && settingsSection === 'data'">
         <section class="intro-row">
           <div><h2>大切な試算データを保管</h2><p>JSON・Excelでの入出力に加え、Googleスプレッドシートへの保存・読み込みができます。</p></div>
+          <button class="secondary-button" @click="settingsSection = 'settings'">設定へ戻る</button>
         </section>
         <section class="content-card editor-card backup-card">
           <div class="section-heading"><div><p class="eyebrow">EXPORT BACKUP</p><h3>バックアップを書き出す</h3></div><span class="status-pill">JSON形式</span></div>
@@ -1701,12 +1707,12 @@ initializeSavedPlanLibrary(householdData.value)
         </section>
       </template>
 
-      <template v-else-if="activeTab === 'settings'">
+      <template v-else-if="activeTab === 'settings' && settingsSection === 'settings'">
         <section class="intro-row">
           <div><h2>アプリの設定</h2><p>表示や動作に関する設定を、今後の段階で順次追加します。</p></div>
         </section>
         <section class="content-card editor-card">
-          <div class="section-heading"><div><p class="eyebrow">CURRENT SETTINGS</p><h3>現在の設定・保存方式</h3></div><span class="status-pill">V1.8.11</span></div>
+          <div class="section-heading"><div><p class="eyebrow">CURRENT SETTINGS</p><h3>現在の設定・保存方式</h3></div><span class="status-pill">V1.8.13</span></div>
           <div class="year-detail-list">
             <div><span>データ保存</span><strong>IndexedDB（主保存）</strong></div>
             <div><span>互換保存</span><strong>localStorage（ミラー）</strong></div>
@@ -1716,10 +1722,10 @@ initializeSavedPlanLibrary(householdData.value)
             <div><span>試算方式</span><strong>月次計算・年次集計</strong></div>
           </div>
           <p class="helper-note">入力データはIndexedDBへ自動保存し、保存日時を記録します。データを変更した日の最初の保存時に日次バックアップを作成し、直近7日分を保持します。自動クラウド同期はローカルからクラウドへの送信に対応します。複数端末間の自動ダウンロード・自動競合解決は未実装です。</p>
-          <button class="secondary-button" @click="activeTab = 'backup'">データ管理を開く</button>
+          <button class="secondary-button" @click="settingsSection = 'data'">データ管理を開く</button>
         </section>
       </template>
-      <template v-else-if="activeTab === 'plans'">
+      <template v-else-if="activeTab === 'compare' && compareMode === 'plans'">
         <section class="intro-row">
           <div><h2>保存した将来プランを比較</h2><p>現在の入力内容をプランとして保存し、条件の異なる家計計画を比較します。</p></div>
           <div class="button-row">
@@ -1779,7 +1785,7 @@ initializeSavedPlanLibrary(householdData.value)
         <section class="content-card notice-card"><p>保存プランを含む完全なバックアップにはJSONバックアップを使用してください。Excel書き出しは現在開いているプランの分析用です。</p></section>
         <section v-if="!selectedPlanIds.length" class="content-card notice-card"><p>比較するプランを1件以上選択してください。</p></section>
       </template>
-      <template v-else>
+      <template v-else-if="activeTab === 'compare' && compareMode === 'scenarios'">
         <section class="intro-row"><div><h2>3つの将来シナリオを比較</h2><p>同じ世帯データを使い、経済条件を変えた場合の資産推移を比較します。</p></div><button class="secondary-button" @click="activeTab = 'data'">シナリオ条件を編集</button></section>
         <section class="metric-grid scenario-metric-grid">
           <article v-for="entry in scenarioResults" :key="entry.scenario.scenarioId" class="metric-card" :class="{ 'highlight-card': entry.scenario.scenarioId === 'standard' }">
@@ -1794,7 +1800,7 @@ initializeSavedPlanLibrary(householdData.value)
         <section class="content-card table-card"><div class="section-heading"><div><p class="eyebrow">SCENARIO SUMMARY</p><h3>比較一覧</h3></div></div><div class="table-scroll"><table><thead><tr><th>シナリオ</th><th>最終金融資産</th><th>最終負債</th><th>最終純資産</th><th>累計取り崩し</th><th>現金不足累計</th><th>初回現金不足年</th></tr></thead><tbody><tr v-for="entry in scenarioResults" :key="entry.scenario.scenarioId"><td>{{ entry.scenario.name }}</td><td>{{ formatYen(entry.result.summary.endFinancialAssets) }}</td><td>{{ formatYen(entry.result.summary.endLiabilities) }}</td><td>{{ formatYen(entry.result.summary.endNetWorth) }}</td><td>{{ formatYen(entry.result.summary.totalWithdrawals) }}</td><td>{{ formatYen(entry.result.summary.totalCashShortfall) }}</td><td>{{ entry.result.summary.firstCashShortfallYear ?? 'なし' }}</td></tr></tbody></table></div></section>
         <section class="content-card notice-card"><h3>シナリオの前提</h3><ul><li>標準は登録した基本条件をそのまま使用します。</li><li>楽観・悲観は標準条件に対する年率差を適用します。</li><li>投資利回りの差は現金・預金以外の資産に適用します。</li><li>これは条件を変えた比較試算であり、将来の結果を保証するものではありません。</li></ul></section>
       </template>
-      <footer class="page-footer">未来シミュレーター v1.7.2 · 入力データはこのブラウザ内に自動保存されます。</footer>
+      <footer class="page-footer">未来シミュレーター v1.8.13 · 入力データはこのブラウザ内に自動保存されます。</footer>
     </main>
   </div>
 </template>
