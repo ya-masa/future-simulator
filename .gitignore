@@ -1,0 +1,10 @@
+# Dependecies
+node_modules/
+
+# Build output
+dist/
+
+# Local environment
+.env
+.env.*
+!.env.example
