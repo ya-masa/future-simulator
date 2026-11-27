@@ -463,9 +463,52 @@ function setConditionRate(key, value, minimum = -99) {
 function onAssetTypeChange(asset) {
   if (['cash', 'deposit'].includes(asset.assetType) && asset.annualReturn == null) {
     asset.annualReturn = 0
-  } else if (!['cash', 'deposit'].includes(asset.assetType) && asset.annualReturn === 0) {
+  } else if (!['cash', 'deposit', 'termDeposit', 'savingsInsurance'].includes(asset.assetType) && asset.annualReturn === 0) {
     asset.annualReturn = null
   }
+  if (['termDeposit', 'savingsInsurance'].includes(asset.assetType)) {
+    asset.contractDate ||= householdData.value.household.startDate || new Date().toISOString().slice(0, 10)
+    asset.maturityPayoutMode ||= 'amount'
+    asset.interestMethod ||= 'compound'
+    asset.compoundingFrequency ||= 12
+    asset.earlySurrenderAllowed ??= false
+    asset.lockupUntil ||= ''
+    asset.surrenderValueAmount ??= 0
+    asset.principalAmount ??= Number(asset.balance || 0)
+    asset.withdrawalEnabled = false
+    if (asset.assetType === 'savingsInsurance') {
+      asset.premiumMode ||= 'oneTime'
+      asset.contributionStartDate ||= asset.contractDate
+      asset.premiumFrequency ||= 'monthly'
+      asset.premiumAmount ??= Number(asset.monthlyContribution || 0)
+    }
+  }
+}
+function setContractPrincipal(asset, value) {
+  const amount = Math.max(0, Number(value || 0))
+  asset.principalAmount = amount
+  if (asset.assetType === 'termDeposit' || (asset.assetType === 'savingsInsurance' && asset.premiumMode !== 'recurring')) {
+    asset.balance = amount
+  }
+}
+function setInsurancePremiumAmount(asset, value) {
+  const amount = Math.max(0, Number(value || 0))
+  asset.premiumAmount = amount
+  asset.monthlyContribution = asset.premiumMode === 'recurring' && asset.premiumFrequency !== 'annual' ? amount : 0
+}
+function setInsurancePremiumMode(asset, value) {
+  asset.premiumMode = value
+  if (value === 'oneTime') {
+    asset.monthlyContribution = 0
+    asset.principalAmount = Math.max(0, Number(asset.premiumAmount || asset.principalAmount || asset.balance || 0))
+    asset.balance = Math.max(0, Number(asset.balance || asset.principalAmount || 0))
+  } else {
+    setInsurancePremiumAmount(asset, asset.premiumAmount || 0)
+  }
+}
+function setInsurancePremiumFrequency(asset, value) {
+  asset.premiumFrequency = value
+  setInsurancePremiumAmount(asset, asset.premiumAmount || 0)
 }
 function assetReturnPlaceholder(asset) {
   return ['cash', 'deposit'].includes(asset.assetType)
@@ -1435,16 +1478,38 @@ initializeSavedPlanLibrary(householdData.value)
             <div class="record-title"><strong>資産 {{ index + 1 }}</strong><button class="delete-button" @click="removeItem(householdData.assets, index)">削除</button></div>
             <div class="form-grid">
               <label>名称<input v-model.trim="asset.name" /></label>
-              <label>資産種類<select v-model="asset.assetType" @change="onAssetTypeChange(asset)"><option value="cash">現金</option><option value="deposit">預貯金</option><option value="investment">投資信託・株式等</option><option value="bond">債券</option><option value="other">その他</option></select></label>
+              <label>資産種類<select v-model="asset.assetType" @change="onAssetTypeChange(asset)"><option value="cash">現金</option><option value="deposit">預貯金</option><option value="termDeposit">定期預金</option><option value="savingsInsurance">貯蓄保険</option><option value="investment">投資信託・株式等</option><option value="bond">債券</option><option value="other">その他</option></select></label>
               <label>現在残高（円）<input v-model.number="asset.balance" type="number" min="0" /></label>
-              <label>想定年率（%）<input type="number" step="0.1" :value="optionalRatePercent(asset.annualReturn)" :placeholder="assetReturnPlaceholder(asset)" @input="setOptionalRate(asset, 'annualReturn', $event.target.value)" /></label>
-              <label>毎月積立額（円）<input v-model.number="asset.monthlyContribution" type="number" min="0" /></label>
-              <label>積立開始日<input v-model="asset.contributionStartDate" type="date" /></label>
-              <label>積立終了日<input v-model="asset.contributionEndDate" type="date" /></label>
-              <label v-if="!['cash', 'deposit'].includes(asset.assetType)">税制区分<select v-model="asset.taxCategory"><option value="taxable">特定口座・課税口座</option><option value="nisa">NISA</option><option value="general">一般口座</option><option value="other">その他</option></select></label>
-              <label v-if="!['cash', 'deposit'].includes(asset.assetType) && asset.taxCategory === 'nisa'">NISA枠<select v-model="asset.nisaType"><option value="">未分類・旧データ</option><option value="accumulation">つみたて投資枠</option><option value="growth">成長投資枠</option></select></label>
-              <label v-if="!['cash', 'deposit'].includes(asset.assetType)">取り崩し優先順位（小さいほど先）<input v-model.number="asset.withdrawalPriority" type="number" min="1" max="999" /></label>
-              <label v-if="!['cash', 'deposit'].includes(asset.assetType)" class="toggle-label"><input v-model="asset.withdrawalEnabled" type="checkbox" /> 自動取り崩しの対象にする</label>
+              <label v-if="!['termDeposit', 'savingsInsurance'].includes(asset.assetType)">想定年率（%）<input type="number" step="0.1" :value="optionalRatePercent(asset.annualReturn)" :placeholder="assetReturnPlaceholder(asset)" @input="setOptionalRate(asset, 'annualReturn', $event.target.value)" /></label>
+              <template v-if="['termDeposit', 'savingsInsurance'].includes(asset.assetType)">
+                <label>契約日・預入日<input v-model="asset.contractDate" type="date" /></label>
+                <label>{{ asset.assetType === 'termDeposit' ? '預入元本（円）' : (asset.premiumMode === 'recurring' ? '積立払込額の基準（円）' : '一時払保険料（円）') }}<input type="number" min="0" :value="asset.principalAmount || 0" @input="setContractPrincipal(asset, $event.target.value)" /></label>
+                <label>満期日<input v-model="asset.maturityDate" type="date" /></label>
+                <label>満期受取額の入力方法<select v-model="asset.maturityPayoutMode"><option value="amount">満期受取額を指定</option><option value="rate">年率を指定</option></select></label>
+                <label v-if="asset.maturityPayoutMode !== 'rate'">満期受取額（円）<input v-model.number="asset.maturityPayoutAmount" type="number" min="0" /></label>
+                <label v-else>想定年率（%）<input type="number" step="0.01" :value="optionalRatePercent(asset.maturityReturnRate)" @input="setOptionalRate(asset, 'maturityReturnRate', $event.target.value)" /></label>
+                <label>利息計算方式<select v-model="asset.interestMethod"><option value="simple">単利</option><option value="compound">複利</option></select></label>
+                <label v-if="asset.interestMethod === 'compound'">複利頻度<select v-model.number="asset.compoundingFrequency"><option :value="1">年1回</option><option :value="2">半年複利</option><option :value="12">月複利</option></select></label>
+                <label class="toggle-label"><input v-model="asset.earlySurrenderAllowed" type="checkbox" @change="asset.withdrawalEnabled = false" /> 途中解約可能</label>
+                <label>解約制限・ロック終了日<input v-model="asset.lockupUntil" type="date" /></label>
+                <label>途中解約時の返戻金（円）<input v-model.number="asset.surrenderValueAmount" type="number" min="0" /></label>
+              </template>
+              <template v-if="asset.assetType === 'savingsInsurance'">
+                <label>保険料の払い方<select :value="asset.premiumMode || 'oneTime'" @change="setInsurancePremiumMode(asset, $event.target.value)"><option value="oneTime">一時払</option><option value="recurring">積立払</option></select></label>
+                <template v-if="asset.premiumMode === 'recurring'">
+                  <label>保険料（円）<input type="number" min="0" :value="asset.premiumAmount || 0" @input="setInsurancePremiumAmount(asset, $event.target.value)" /></label>
+                  <label>保険料の頻度<select :value="asset.premiumFrequency || 'monthly'" @change="setInsurancePremiumFrequency(asset, $event.target.value)"><option value="monthly">毎月</option><option value="annual">毎年</option></select></label>
+                  <label>積立開始日<input v-model="asset.contributionStartDate" type="date" /></label>
+                  <label>積立終了日<input v-model="asset.contributionEndDate" type="date" /></label>
+                </template>
+              </template>
+              <label v-if="!['cash', 'deposit', 'termDeposit', 'savingsInsurance'].includes(asset.assetType)">毎月積立額（円）<input v-model.number="asset.monthlyContribution" type="number" min="0" /></label>
+              <label v-if="!['cash', 'deposit', 'termDeposit', 'savingsInsurance'].includes(asset.assetType)">積立開始日<input v-model="asset.contributionStartDate" type="date" /></label>
+              <label v-if="!['cash', 'deposit', 'termDeposit', 'savingsInsurance'].includes(asset.assetType)">積立終了日<input v-model="asset.contributionEndDate" type="date" /></label>
+              <label v-if="!['cash', 'deposit', 'termDeposit', 'savingsInsurance'].includes(asset.assetType)">税制区分<select v-model="asset.taxCategory"><option value="taxable">特定口座・課税口座</option><option value="nisa">NISA</option><option value="general">一般口座</option><option value="other">その他</option></select></label>
+              <label v-if="!['cash', 'deposit', 'termDeposit', 'savingsInsurance'].includes(asset.assetType) && asset.taxCategory === 'nisa'">NISA枠<select v-model="asset.nisaType"><option value="">未分類・旧データ</option><option value="accumulation">つみたて投資枠</option><option value="growth">成長投資枠</option></select></label>
+              <label v-if="!['cash', 'deposit', 'termDeposit', 'savingsInsurance'].includes(asset.assetType)">取り崩し優先順位（小さいほど先）<input v-model.number="asset.withdrawalPriority" type="number" min="1" max="999" /></label>
+              <label v-if="!['cash', 'deposit', 'termDeposit', 'savingsInsurance'].includes(asset.assetType)" class="toggle-label"><input v-model="asset.withdrawalEnabled" type="checkbox" /> 自動取り崩しの対象にする</label>
             </div>
           </div>
           <p v-if="!householdData.assets.length" class="empty-note">資産データがありません。「資産を追加」から登録できます。</p>
@@ -1760,7 +1825,7 @@ initializeSavedPlanLibrary(householdData.value)
           <div><h2>アプリの設定</h2><p>表示や動作に関する設定を、今後の段階で順次追加します。</p></div>
         </section>
         <section class="content-card editor-card">
-          <div class="section-heading"><div><p class="eyebrow">CURRENT SETTINGS</p><h3>現在の設定・保存方式</h3></div><span class="status-pill">V1.8.18</span></div>
+          <div class="section-heading"><div><p class="eyebrow">CURRENT SETTINGS</p><h3>現在の設定・保存方式</h3></div><span class="status-pill">V1.9.0</span></div>
           <div class="year-detail-list">
             <div><span>データ保存</span><strong>IndexedDB（主保存）</strong></div>
             <div><span>互換保存</span><strong>localStorage（ミラー）</strong></div>
@@ -1768,10 +1833,10 @@ initializeSavedPlanLibrary(householdData.value)
             <div><span>自動バックアップ</span><strong>日次・直近7日分</strong></div>
             <div><span>クラウド連携</span><strong>{{ cloudAutoSyncEnabled ? '自動送信ON' : '手動' }}</strong></div>
             <div><span>試算方式</span><strong>月次計算・年次集計</strong></div>
-            <div><span>アプリバージョン</span><strong>V1.8.18</strong></div>
+            <div><span>アプリバージョン</span><strong>V1.9.0</strong></div>
           </div>
           <p class="helper-note">入力データはIndexedDBへ自動保存し、保存日時を記録します。データを変更した日の最初の保存時に日次バックアップを作成し、直近7日分を保持します。自動クラウド同期はローカルからクラウドへの送信に対応します。複数端末間の自動ダウンロード・自動競合解決は未実装です。</p>
-          <section class="content-card notice-card release-history"><div class="section-heading"><div><p class="eyebrow">RELEASE HISTORY & ROADMAP</p><h3>改修履歴・予定</h3></div></div><ul><li><strong>V1.8.18・修正</strong> — 年齢欄の表示上限を人物別計算終了年齢と世帯計算終了年齢の小さい方に統一。人物IDが一致しない場合も氏名で照合し、上限を超える年齢は空白にします。</li><li><strong>V1.8.17・修正対象</strong> — 年齢欄の空白表示が実画面で反映されない問題を修正。</li><li><strong>V1.8.16・実装</strong> — 人物ごとの計算終了年齢を追加。到達後、その人物に紐づく収入・年金・退職金を停止し、全員が終了年齢に達した年末で世帯試算も終了します。</li><li><strong>V1.8.16・実装</strong> — アプリ内バージョン・改修履歴の表示を統一。</li><li><strong>V1.9.0・予定</strong> — 定期預金（満期・満期受取額・複利/単利・途中解約条件）を資産と将来イベントに追加。</li><li><strong>V1.10.0・予定</strong> — 貯蓄保険（一時払/積立・満期・返戻金・途中解約条件）を資産と将来イベントに追加。</li><li><strong>V1.11.0・予定</strong> — 資金不足時の補充順を現金→預貯金→換金可能な投資資産に統一し、ロック中資産を除外。</li><li><strong>次期以降・予定</strong> — 保存先ごとの起動時復元・JSON/Excel/GASの選択保存先と自動更新、比較結果のマイナス値表示を整備。</li></ul><p class="helper-note">機能改修は2つ目の数字を上げ、修正・やり直しは3つ目の数字を上げます。</p></section>
+          <section class="content-card notice-card release-history"><div class="section-heading"><div><p class="eyebrow">RELEASE HISTORY & ROADMAP</p><h3>改修履歴・予定</h3></div></div><ul><li><strong>V1.9.0・実装</strong> — 定期預金・貯蓄保険の資産モデル。契約日・元本・満期日・満期受取額または年率・単利/複利・複利頻度・途中解約条件を登録できます。貯蓄保険は一時払/積立払、月払/年払を設定できます。</li><li><strong>V1.8.18・実装</strong> — 人物ごとの計算終了年齢と世帯終了条件。年齢欄は上限を超えると空白表示。</li><li><strong>V1.10.0・予定</strong> — 満期処理と将来イベント連携。</li><li><strong>V1.11.0・予定</strong> — 資産不足時の自動補充。</li><li><strong>V1.12.0・予定</strong> — 比較結果のマイナス表示。</li><li><strong>V1.13.0・予定</strong> — バックアップ方式の改修。</li><li><strong>V1.14.0・予定</strong> — 詳細結果の3つのグラフを統合。</li></ul><p class="helper-note">機能改修は2つ目の数字を上げ、修正・やり直しは3つ目の数字を上げます。</p></section>
           <button class="secondary-button" @click="settingsSection = 'data'">データ管理を開く</button>
         </section>
       </template>
@@ -1850,7 +1915,7 @@ initializeSavedPlanLibrary(householdData.value)
         <section class="content-card table-card"><div class="section-heading"><div><p class="eyebrow">SCENARIO SUMMARY</p><h3>比較一覧</h3></div></div><div class="table-scroll"><table><thead><tr><th>シナリオ</th><th>最終金融資産</th><th>最終負債</th><th>最終純資産</th><th>累計取り崩し</th><th>現金不足累計</th><th>初回現金不足年</th></tr></thead><tbody><tr v-for="entry in scenarioResults" :key="entry.scenario.scenarioId"><td>{{ entry.scenario.name }}</td><td>{{ formatYen(entry.result.summary.endFinancialAssets) }}</td><td>{{ formatYen(entry.result.summary.endLiabilities) }}</td><td>{{ formatYen(entry.result.summary.endNetWorth) }}</td><td>{{ formatYen(entry.result.summary.totalWithdrawals) }}</td><td>{{ formatYen(entry.result.summary.totalCashShortfall) }}</td><td>{{ entry.result.summary.firstCashShortfallYear ?? 'なし' }}</td></tr></tbody></table></div></section>
         <section class="content-card notice-card"><h3>シナリオの前提</h3><ul><li>標準は登録した基本条件をそのまま使用します。</li><li>楽観・悲観は標準条件に対する年率差を適用します。</li><li>投資利回りの差は現金・預金以外の資産に適用します。</li><li>これは条件を変えた比較試算であり、将来の結果を保証するものではありません。</li></ul></section>
       </template>
-      <footer class="page-footer">未来シミュレーター V1.8.18 · 入力データはこのブラウザ内に自動保存されます。</footer>
+      <footer class="page-footer">未来シミュレーター V1.9.0 · 入力データはこのブラウザ内に自動保存されます。</footer>
     </main>
   </div>
 </template>

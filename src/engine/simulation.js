@@ -78,7 +78,7 @@ function summarizeAssetCategories(cashAssets, investmentAssets) {
   for (const asset of [...cashAssets, ...investmentAssets]) {
     let key = 'other'
     if (asset.assetType === 'cash') key = 'cash'
-    else if (asset.assetType === 'deposit') key = 'deposit'
+    else if (['deposit', 'termDeposit', 'savingsInsurance'].includes(asset.assetType)) key = 'deposit'
     else if (asset.assetType === 'bond') key = 'bond'
     else if (asset.taxCategory === 'nisa') key = 'nisa'
     else if (['taxable', 'general'].includes(asset.taxCategory)) key = 'taxable'
@@ -105,7 +105,7 @@ function summarizeOpeningAssetDetails(details = []) {
   for (const asset of details) {
     let key = 'other'
     if (asset.assetType === 'cash') key = 'cash'
-    else if (asset.assetType === 'deposit') key = 'deposit'
+    else if (['deposit', 'termDeposit', 'savingsInsurance'].includes(asset.assetType)) key = 'deposit'
     else if (asset.assetType === 'bond') key = 'bond'
     else if (asset.taxCategory === 'nisa') key = 'nisa'
     else if (['taxable', 'general'].includes(asset.taxCategory)) key = 'taxable'

@@ -10,10 +10,20 @@ export function getMinimumCashReserve(conditions = {}) {
 
 export function getScheduledContributions(assets = [], date) {
   return assets.reduce((result, asset) => {
-    const start = asset.contributionStartDate ? new Date(`${asset.contributionStartDate}T00:00:00`) : null
+    const contributionStart = asset.contributionStartDate || (asset.assetType === 'savingsInsurance' ? asset.contractDate : '')
+    const start = contributionStart ? new Date(`${contributionStart}T00:00:00`) : null
     const end = asset.contributionEndDate ? new Date(`${asset.contributionEndDate}T00:00:00`) : null
     const active = (!start || date >= start) && (!end || date <= end)
-    result[asset.assetId] = active ? Math.max(0, Number(asset.monthlyContribution || 0)) : 0
+    if (asset.assetType === 'savingsInsurance' && asset.premiumMode === 'recurring') {
+      const frequency = asset.premiumFrequency || 'monthly'
+      const amount = Math.max(0, Number(asset.premiumAmount ?? asset.monthlyContribution ?? 0))
+      const due = frequency === 'annual'
+        ? active && (!start || date.getMonth() === start.getMonth())
+        : active
+      result[asset.assetId] = due ? amount : 0
+    } else {
+      result[asset.assetId] = active ? Math.max(0, Number(asset.monthlyContribution || 0)) : 0
+    }
     return result
   }, {})
 }

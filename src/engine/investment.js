@@ -1,4 +1,5 @@
 import { isActiveInMonth } from './dateUtils.js'
+import { contractAssetMonthlyGrowth, isContractAsset } from './assetModels.js'
 
 export function monthlyRateFromAnnual(annualRate) {
   return Math.pow(1 + Number(annualRate || 0), 1 / 12) - 1
@@ -18,9 +19,18 @@ export function growInvestmentAssets(assets, date, contributionOverrides = null,
       : isContributionActive(asset, date)
         ? Number(asset.monthlyContribution || 0)
         : 0
+    const currentBalance = Number(asset.balance || 0)
+    if (isContractAsset(asset)) {
+      const contributedPrincipal = asset.interestMethod === 'simple'
+        ? Math.max(0, Number(asset.contributedPrincipal ?? asset.principalAmount ?? currentBalance)) + contribution
+        : asset.contributedPrincipal
+      const modelAsset = contributedPrincipal == null ? asset : { ...asset, contributedPrincipal }
+      const balance = contractAssetMonthlyGrowth(modelAsset, date, currentBalance, contribution)
+      return { ...asset, ...(contributedPrincipal == null ? {} : { contributedPrincipal }), balance, contributionThisMonth: contribution }
+    }
     const annualReturn = asset.annualReturn == null ? Number(defaultAnnualReturn || 0) : Number(asset.annualReturn || 0)
     const rate = monthlyRateFromAnnual(annualReturn)
-    const balance = (Number(asset.balance || 0) + contribution) * (1 + rate)
+    const balance = (currentBalance + contribution) * (1 + rate)
     return { ...asset, balance, contributionThisMonth: contribution }
   })
 }
