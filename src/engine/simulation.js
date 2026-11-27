@@ -4,6 +4,7 @@ import { calculateMonthlyPensionIncome } from './pensions.js'
 import { getAge, parseDate } from './dateUtils.js'
 import { growCashAssets, growInvestmentAssets } from './investment.js'
 import { getMinimumCashReserve, getScheduledContributions, limitContributionsToAvailableCash, withdrawInvestmentAssets, applyAutomaticFunding } from './withdrawal.js'
+import { getContractAssetBalanceAtDate, isContractAsset } from './assetModels.js'
 import { applyEventIncome, debitIndividualAsset, debitAssetCategory, assetMatchesEventCategory, resolveEventAsset, transferBetweenAssets, sortEventsForMonth } from './futureEvents.js'
 import { getLiabilityWarnings, prepareLiabilities, processMonthlyLiabilities, sumLiabilityBalances } from './debt.js'
 
@@ -78,6 +79,7 @@ function summarizeAssetCategories(cashAssets, investmentAssets) {
   for (const asset of [...cashAssets, ...investmentAssets]) {
     let key = 'other'
     if (asset.assetType === 'cash') key = 'cash'
+    else if (isContractAsset(asset) && asset.purchaseDestinationAssetCategory) key = asset.purchaseDestinationAssetCategory === 'investment' ? (asset.taxCategory === 'nisa' ? 'nisa' : 'taxable') : asset.purchaseDestinationAssetCategory
     else if (['deposit', 'termDeposit', 'savingsInsurance'].includes(asset.assetType)) key = 'deposit'
     else if (asset.assetType === 'bond') key = 'bond'
     else if (asset.taxCategory === 'nisa') key = 'nisa'
@@ -96,6 +98,7 @@ function snapshotAssetDetails(cashAssets, investmentAssets) {
       name: asset.name || '名称未設定',
       assetType: asset.assetType || 'other',
       taxCategory: asset.taxCategory || 'other',
+      purchaseDestinationAssetCategory: asset.purchaseDestinationAssetCategory || '',
       balance: round(Number(asset.balance || 0)),
     }))
 }
@@ -105,6 +108,7 @@ function summarizeOpeningAssetDetails(details = []) {
   for (const asset of details) {
     let key = 'other'
     if (asset.assetType === 'cash') key = 'cash'
+    else if (['termDeposit', 'savingsInsurance'].includes(asset.assetType) && asset.purchaseDestinationAssetCategory) key = asset.purchaseDestinationAssetCategory === 'investment' ? (asset.taxCategory === 'nisa' ? 'nisa' : 'taxable') : asset.purchaseDestinationAssetCategory
     else if (['deposit', 'termDeposit', 'savingsInsurance'].includes(asset.assetType)) key = 'deposit'
     else if (asset.assetType === 'bond') key = 'bond'
     else if (asset.taxCategory === 'nisa') key = 'nisa'
@@ -144,7 +148,12 @@ export function runSimulation(input) {
   }
   let investmentAssets = (input.assets || [])
     .filter((asset) => !['cash', 'deposit'].includes(asset.assetType))
-    .map((asset) => ({ ...asset, balance: Number(asset.balance || 0) }))
+    .map((asset) => ({
+      ...asset,
+      balance: isContractAsset(asset)
+        ? getContractAssetBalanceAtDate(asset, new Date(startDate.getFullYear(), startDate.getMonth(), 1))
+        : Number(asset.balance || 0),
+    }))
   let liabilities = prepareLiabilities(input.liabilities || [], startDate)
 
   const processedPurchaseEvents = new Set()
@@ -216,6 +225,34 @@ export function runSimulation(input) {
     }
 
     const monthKey = `${year}-${String(date.getMonth() + 1).padStart(2, '0')}`
+    // 契約開始月に一時払元本を資産へ計上。開始前の契約は初期残高として契約日から評価済み。
+    for (const asset of investmentAssets) {
+      if (!isContractAsset(asset) || asset.assetType === 'savingsInsurance' && asset.premiumMode === 'recurring') continue
+      if (!asset.contractDate || asset.contractDate.slice(0, 7) !== monthKey || asset.contractDate.slice(0, 7) < input.household.startDate.slice(0, 7)) continue
+      if (asset.contractPrincipalApplied) continue
+      const principal = Math.max(0, Number(asset.principalAmount || 0))
+      const sourceCategory = asset.purchaseSourceAssetCategory || 'cash'
+      let remaining = principal
+      const sourceCashType = sourceCategory === 'deposit' ? 'deposit' : sourceCategory === 'cash' ? 'cash' : null
+      if (sourceCashType) {
+        for (const source of cashAssets.filter((item) => item.assetType === sourceCashType)) {
+          const amount = Math.min(Math.max(0, Number(source.balance || 0)), remaining)
+          source.balance -= amount
+          remaining -= amount
+          if (remaining <= 0.000001) break
+        }
+      } else {
+        const sourceAssets = investmentAssets.filter((item) => item.assetId !== asset.assetId && (sourceCategory === 'bond' ? item.assetType === 'bond' : sourceCategory === 'investment' ? !['bond', 'termDeposit', 'savingsInsurance'].includes(item.assetType) : item.assetType === 'other'))
+        for (const source of sourceAssets) {
+          const amount = Math.min(Math.max(0, Number(source.balance || 0)), remaining)
+          source.balance -= amount
+          remaining -= amount
+          if (remaining <= 0.000001) break
+        }
+      }
+      asset.balance = principal
+      asset.contractPrincipalApplied = true
+    }
     // 月初時点ですでに存在する現金不足を記録し、今月新たに増えた不足分だけを集計する。
     const cashDeficitAtMonthStart = Math.max(0, -sumBalances(cashAssets))
     // 債券利息は登録された初回受取日を起点に、年1回／年2回の周期で計上する。
@@ -442,7 +479,24 @@ export function runSimulation(input) {
       minimumCashReserve,
     )
     const contribution = contributionPlan.total
-    debitCashPool(cashAssets, contribution)
+    // 貯蓄保険の積立保険料は指定された預貯金区分から引き落とす。その他の積立は従来の現金→預貯金順を維持。
+    let standardContribution = 0
+    for (const asset of investmentAssets) {
+      const amount = Math.max(0, Number(contributionPlan.contributions[asset.assetId] || 0))
+      if (amount <= 0) continue
+      if (isContractAsset(asset) && asset.purchaseSourceAssetCategory === 'deposit') {
+        let remaining = amount
+        for (const source of cashAssets.filter((item) => item.assetType === 'deposit')) {
+          const debit = Math.min(Math.max(0, Number(source.balance || 0)), remaining)
+          source.balance -= debit
+          remaining -= debit
+          if (remaining <= 0.000001) break
+        }
+      } else {
+        standardContribution += amount
+      }
+    }
+    debitCashPool(cashAssets, standardContribution)
     investmentAssets = growInvestmentAssets(
       investmentAssets,
       date,

@@ -106,3 +106,33 @@ export function getContractAssetModelSummary(asset) {
     compoundingFrequency: Math.max(1, Number(asset.compoundingFrequency || 12)),
   }
 }
+
+/** Calculate a contract asset's value at the simulation start date from its contract date. */
+export function getContractAssetBalanceAtDate(asset, targetDate) {
+  if (!isContractAsset(asset) || !asset.contractDate || !targetDate) return 0
+  const contractStart = new Date(`${asset.contractDate}T00:00:00`)
+  if (!Number.isFinite(contractStart.getTime())) return 0
+  const targetMonth = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1)
+  if (contractStart >= targetMonth) return 0
+  let balance = asset.assetType === 'savingsInsurance' && asset.premiumMode === 'recurring'
+    ? 0
+    : Math.max(0, Number(asset.principalAmount ?? asset.balance ?? 0))
+  let contributedPrincipal = balance
+  const startValue = asset.contributionStartDate || asset.contractDate
+  const endValue = asset.contributionEndDate || asset.maturityDate
+  const start = startValue ? new Date(`${startValue}T00:00:00`) : contractStart
+  const end = endValue ? new Date(`${endValue}T00:00:00`) : null
+  const recurring = asset.assetType === 'savingsInsurance' && asset.premiumMode === 'recurring'
+  const premium = Math.max(0, Number(asset.premiumAmount || 0))
+  const frequency = asset.premiumFrequency || 'monthly'
+  for (let date = new Date(contractStart.getFullYear(), contractStart.getMonth(), 1); date < targetMonth; date.setMonth(date.getMonth() + 1)) {
+    let contribution = 0
+    if (recurring && date >= new Date(start.getFullYear(), start.getMonth(), 1) && (!end || date <= new Date(end.getFullYear(), end.getMonth(), 1))) {
+      if (frequency !== 'annual' || date.getMonth() === start.getMonth()) contribution = premium
+    }
+    if (asset.interestMethod === 'simple') contributedPrincipal += contribution
+    const modelAsset = asset.interestMethod === 'simple' ? { ...asset, contributedPrincipal } : asset
+    balance = contractAssetMonthlyGrowth(modelAsset, date, balance, contribution)
+  }
+  return Math.max(0, Number(balance || 0))
+}

@@ -44,3 +44,20 @@ test('recurring savings insurance derives an annualized return from scheduled pr
   assert.ok(rate > 0)
   assert.ok(rate < 0.1)
 })
+
+test('contract asset balance is calculated from contract start date, not a manually entered current balance', async () => {
+  const { getContractAssetBalanceAtDate } = await import('./assetModels.js')
+  const asset = {
+    assetType: 'termDeposit', principalAmount: 1000000, balance: 9999999,
+    maturityPayoutMode: 'amount', maturityPayoutAmount: 1210000,
+    contractDate: '2020-01-01', maturityDate: '2022-01-01', interestMethod: 'compound',
+  }
+  const value = getContractAssetBalanceAtDate(asset, new Date('2021-01-01T00:00:00'))
+  assert.ok(value > 1090000 && value < 1110000)
+})
+
+test('contract starting in the simulation start month begins with zero initial balance', async () => {
+  const { getContractAssetBalanceAtDate } = await import('./assetModels.js')
+  const asset = { assetType: 'termDeposit', principalAmount: 500000, contractDate: '2026-01-01', maturityDate: '2030-01-01', maturityPayoutMode: 'amount', maturityPayoutAmount: 600000, interestMethod: 'compound' }
+  assert.equal(getContractAssetBalanceAtDate(asset, new Date('2026-01-01T00:00:00')), 0)
+})
