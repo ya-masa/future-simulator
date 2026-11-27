@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { getYearOverYearAssetChange, formatAnnualTableAge } from './annualComparison.js'
+import { getYearOverYearAssetChange, formatAnnualTableAge, getAnnualAgeDisplayCutoff } from './annualComparison.js'
 
 test('year-on-year opening asset change and rate are calculated from adjacent annual rows', () => {
   const rows = [
@@ -29,4 +29,10 @@ test('annual table age stays visible at the cutoff and is blank after it', () =>
 test('annual table age uses default cutoff and keeps unknown ages as dash', () => {
   assert.equal(formatAnnualTableAge(101, undefined), '')
   assert.equal(formatAnnualTableAge(null, 100), '—')
+})
+
+test('annual age display cutoff uses the lower person or household limit', () => {
+  assert.equal(getAnnualAgeDisplayCutoff(110, 100), 100)
+  assert.equal(getAnnualAgeDisplayCutoff(100, 110), 100)
+  assert.equal(getAnnualAgeDisplayCutoff(100, 100), 100)
 })

@@ -4,7 +4,7 @@ import { Line, Bar } from 'vue-chartjs'
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip, Legend, Filler } from 'chart.js'
 import { defaultHousehold } from './data/defaultHousehold.js'
 import { runSimulation } from './engine/simulation.js'
-import { getYearOverYearAssetChange, formatAnnualTableAge } from './engine/annualComparison.js'
+import { getYearOverYearAssetChange, formatAnnualTableAge, getAnnualAgeDisplayCutoff } from './engine/annualComparison.js'
 import { normalizePensionData } from './engine/pensions.js'
 import { defaultScenarios, runScenarioComparisons } from './engine/scenarios.js'
 import { clonePlanData, initializeSavedPlanLibrary, summarizePlanResult } from './engine/planManagement.js'
@@ -351,10 +351,13 @@ const annualTableRows = computed(() => {
         const matchedPerson = person.personId != null
           ? row.ages.find((item) => item.personId === person.personId)
           : row.ages.find((item) => item.name === person.name)
-        const householdPerson = householdData.value.persons.find((item) =>
-          person.personId != null ? item.personId === person.personId : item.name === person.name,
-        )
-        return formatAnnualTableAge(matchedPerson?.age, householdPerson?.calculationEndAge)
+        const householdPersons = householdData.value.persons || []
+        const householdPerson = householdPersons.find((item) => person.personId != null && item.personId === person.personId)
+          || householdPersons.find((item) => item.name === person.name)
+        const personCutoff = householdPerson?.calculationEndAge ?? 100
+        const householdCutoff = householdData.value.household?.endAge ?? 100
+        const displayCutoff = getAnnualAgeDisplayCutoff(personCutoff, householdCutoff)
+        return formatAnnualTableAge(matchedPerson?.age, displayCutoff)
       },
     })),
     { label: '年初金融資産', get: (row) => formatYen(row.openingFinancialAssets) },
@@ -1757,7 +1760,7 @@ initializeSavedPlanLibrary(householdData.value)
           <div><h2>アプリの設定</h2><p>表示や動作に関する設定を、今後の段階で順次追加します。</p></div>
         </section>
         <section class="content-card editor-card">
-          <div class="section-heading"><div><p class="eyebrow">CURRENT SETTINGS</p><h3>現在の設定・保存方式</h3></div><span class="status-pill">V1.8.17</span></div>
+          <div class="section-heading"><div><p class="eyebrow">CURRENT SETTINGS</p><h3>現在の設定・保存方式</h3></div><span class="status-pill">V1.8.18</span></div>
           <div class="year-detail-list">
             <div><span>データ保存</span><strong>IndexedDB（主保存）</strong></div>
             <div><span>互換保存</span><strong>localStorage（ミラー）</strong></div>
@@ -1765,10 +1768,10 @@ initializeSavedPlanLibrary(householdData.value)
             <div><span>自動バックアップ</span><strong>日次・直近7日分</strong></div>
             <div><span>クラウド連携</span><strong>{{ cloudAutoSyncEnabled ? '自動送信ON' : '手動' }}</strong></div>
             <div><span>試算方式</span><strong>月次計算・年次集計</strong></div>
-            <div><span>アプリバージョン</span><strong>V1.8.17</strong></div>
+            <div><span>アプリバージョン</span><strong>V1.8.18</strong></div>
           </div>
           <p class="helper-note">入力データはIndexedDBへ自動保存し、保存日時を記録します。データを変更した日の最初の保存時に日次バックアップを作成し、直近7日分を保持します。自動クラウド同期はローカルからクラウドへの送信に対応します。複数端末間の自動ダウンロード・自動競合解決は未実装です。</p>
-          <section class="content-card notice-card release-history"><div class="section-heading"><div><p class="eyebrow">RELEASE HISTORY & ROADMAP</p><h3>改修履歴・予定</h3></div></div><ul><li><strong>V1.8.17・実装</strong> — 年次シミュレーション一覧の人物年齢は、入力した本人の計算終了年齢まで表示し、それを超える年齢は空白にします。</li><li><strong>V1.8.16・実装</strong> — 人物ごとの計算終了年齢を追加。到達後、その人物に紐づく収入・年金・退職金を停止し、全員が終了年齢に達した年末で世帯試算も終了します。</li><li><strong>V1.8.16・実装</strong> — アプリ内バージョン・改修履歴の表示を統一。</li><li><strong>V1.9.0・予定</strong> — 定期預金（満期・満期受取額・複利/単利・途中解約条件）を資産と将来イベントに追加。</li><li><strong>V1.10.0・予定</strong> — 貯蓄保険（一時払/積立・満期・返戻金・途中解約条件）を資産と将来イベントに追加。</li><li><strong>V1.11.0・予定</strong> — 資金不足時の補充順を現金→預貯金→換金可能な投資資産に統一し、ロック中資産を除外。</li><li><strong>次期以降・予定</strong> — 保存先ごとの起動時復元・JSON/Excel/GASの選択保存先と自動更新、比較結果のマイナス値表示を整備。</li></ul><p class="helper-note">機能改修は2つ目の数字を上げ、修正・やり直しは3つ目の数字を上げます。</p></section>
+          <section class="content-card notice-card release-history"><div class="section-heading"><div><p class="eyebrow">RELEASE HISTORY & ROADMAP</p><h3>改修履歴・予定</h3></div></div><ul><li><strong>V1.8.18・修正</strong> — 年齢欄の表示上限を人物別計算終了年齢と世帯計算終了年齢の小さい方に統一。人物IDが一致しない場合も氏名で照合し、上限を超える年齢は空白にします。</li><li><strong>V1.8.17・修正対象</strong> — 年齢欄の空白表示が実画面で反映されない問題を修正。</li><li><strong>V1.8.16・実装</strong> — 人物ごとの計算終了年齢を追加。到達後、その人物に紐づく収入・年金・退職金を停止し、全員が終了年齢に達した年末で世帯試算も終了します。</li><li><strong>V1.8.16・実装</strong> — アプリ内バージョン・改修履歴の表示を統一。</li><li><strong>V1.9.0・予定</strong> — 定期預金（満期・満期受取額・複利/単利・途中解約条件）を資産と将来イベントに追加。</li><li><strong>V1.10.0・予定</strong> — 貯蓄保険（一時払/積立・満期・返戻金・途中解約条件）を資産と将来イベントに追加。</li><li><strong>V1.11.0・予定</strong> — 資金不足時の補充順を現金→預貯金→換金可能な投資資産に統一し、ロック中資産を除外。</li><li><strong>次期以降・予定</strong> — 保存先ごとの起動時復元・JSON/Excel/GASの選択保存先と自動更新、比較結果のマイナス値表示を整備。</li></ul><p class="helper-note">機能改修は2つ目の数字を上げ、修正・やり直しは3つ目の数字を上げます。</p></section>
           <button class="secondary-button" @click="settingsSection = 'data'">データ管理を開く</button>
         </section>
       </template>
@@ -1847,7 +1850,7 @@ initializeSavedPlanLibrary(householdData.value)
         <section class="content-card table-card"><div class="section-heading"><div><p class="eyebrow">SCENARIO SUMMARY</p><h3>比較一覧</h3></div></div><div class="table-scroll"><table><thead><tr><th>シナリオ</th><th>最終金融資産</th><th>最終負債</th><th>最終純資産</th><th>累計取り崩し</th><th>現金不足累計</th><th>初回現金不足年</th></tr></thead><tbody><tr v-for="entry in scenarioResults" :key="entry.scenario.scenarioId"><td>{{ entry.scenario.name }}</td><td>{{ formatYen(entry.result.summary.endFinancialAssets) }}</td><td>{{ formatYen(entry.result.summary.endLiabilities) }}</td><td>{{ formatYen(entry.result.summary.endNetWorth) }}</td><td>{{ formatYen(entry.result.summary.totalWithdrawals) }}</td><td>{{ formatYen(entry.result.summary.totalCashShortfall) }}</td><td>{{ entry.result.summary.firstCashShortfallYear ?? 'なし' }}</td></tr></tbody></table></div></section>
         <section class="content-card notice-card"><h3>シナリオの前提</h3><ul><li>標準は登録した基本条件をそのまま使用します。</li><li>楽観・悲観は標準条件に対する年率差を適用します。</li><li>投資利回りの差は現金・預金以外の資産に適用します。</li><li>これは条件を変えた比較試算であり、将来の結果を保証するものではありません。</li></ul></section>
       </template>
-      <footer class="page-footer">未来シミュレーター V1.8.17 · 入力データはこのブラウザ内に自動保存されます。</footer>
+      <footer class="page-footer">未来シミュレーター V1.8.18 · 入力データはこのブラウザ内に自動保存されます。</footer>
     </main>
   </div>
 </template>

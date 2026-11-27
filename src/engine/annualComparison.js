@@ -12,7 +12,16 @@ export function getYearOverYearAssetChange(annualResults, index) {
   return { amount, rate }
 }
 
-/** Display a person's age only through their configured calculation cutoff. */
+/** Resolve the display cutoff from the person's and household's configured limits. */
+export function getAnnualAgeDisplayCutoff(personCutoff, householdCutoff) {
+  const personLimit = Number(personCutoff ?? 100)
+  const householdLimit = Number(householdCutoff ?? 100)
+  const validPersonLimit = Number.isFinite(personLimit) ? personLimit : 100
+  const validHouseholdLimit = Number.isFinite(householdLimit) ? householdLimit : 100
+  return Math.min(validPersonLimit, validHouseholdLimit)
+}
+
+/** Display a person's age only through the effective configured cutoff. */
 export function formatAnnualTableAge(age, calculationEndAge) {
   if (age == null || age === '') return '—'
   const numericAge = Number(age)
