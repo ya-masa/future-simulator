@@ -11,3 +11,13 @@ export function getYearOverYearAssetChange(annualResults, index) {
   const rate = previousOpening > 0 ? amount / previousOpening * 100 : null
   return { amount, rate }
 }
+
+/** Display a person's age only through their configured calculation cutoff. */
+export function formatAnnualTableAge(age, calculationEndAge) {
+  if (age == null || age === '') return '—'
+  const numericAge = Number(age)
+  const cutoff = Number(calculationEndAge ?? 100)
+  if (!Number.isFinite(numericAge)) return '—'
+  if (Number.isFinite(cutoff) && numericAge > cutoff) return ''
+  return `${numericAge}歳`
+}
