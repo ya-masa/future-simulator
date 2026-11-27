@@ -717,7 +717,7 @@ function setEventAssetCategory(event, field, category) {
   event[categoryField] = category
   event[field] = ''
 }
-function eventTypeLabel(type) { return ({ income: '収入', expense: '支出', assetPurchase: '資産購入', assetSale: '資産売却', bondPurchase: '債券購入', bondMaturity: '債券満期', autoFunding: '自動資金補充', cashflow: '旧形式イベント' })[type] || type || '未設定' }
+function eventTypeLabel(type) { return ({ income: '収入', expense: '支出', assetPurchase: '資産購入', assetSale: '資産売却', bondPurchase: '債券購入', bondMaturity: '債券満期', contractMaturity: '契約資産満期', autoFunding: '自動資金補充', cashflow: '旧形式イベント' })[type] || type || '未設定' }
 function ensureBondPurchaseFields(event) {
   if (event.type !== 'bondPurchase') return
   if (event.faceAmount == null) event.faceAmount = Number(event.purchaseAmount || 0)
@@ -735,6 +735,7 @@ function eventAssetSummary(event) {
   if (['assetPurchase','bondPurchase'].includes(event.type)) return `購入元：${event.sourceAssetCategory ? eventCategoryLabel(event.sourceAssetCategory) : assetName(event.sourceAssetId)} ／ 購入先：${event.destinationAssetCategory ? eventCategoryLabel(event.destinationAssetCategory) : assetName(event.destinationAssetId)}`
   if (event.type === 'assetSale') return `売却元：${event.sourceAssetCategory ? eventCategoryLabel(event.sourceAssetCategory) : assetName(event.sourceAssetId)} ／ 売却先：${event.destinationAssetCategory ? eventCategoryLabel(event.destinationAssetCategory) : assetName(event.destinationAssetId)}`
   if (event.type === 'bondMaturity') return `償還元：${event.sourceAssetCategory ? eventCategoryLabel(event.sourceAssetCategory) : assetName(event.sourceAssetId)} ／ 償還先：${event.destinationAssetCategory ? eventCategoryLabel(event.destinationAssetCategory) : assetName(event.destinationAssetId)}`
+  if (event.type === 'contractMaturity') return `契約満期：${assetName(event.sourceAssetId)} → ${assetName(event.destinationAssetId)}`
   if (event.type === 'autoFunding') return '補充元：資金補充ルール'
   return '資産区分：旧形式イベント'
 }
@@ -1552,7 +1553,7 @@ initializeSavedPlanLibrary(householdData.value)
 
         <section v-if="activeDataCategory === 'events'" class="content-card editor-card">
           <div class="section-heading"><div><p class="eyebrow">FUTURE EVENTS</p><h3>将来イベント</h3></div><button class="small-button" @click="addFutureEvent">＋ イベントを追加</button></div>
-          <p class="helper-note">将来の収入・支出はイベントで一元管理できます。収入・支出イベントは1回・毎月・毎年の繰り返しと終了日を設定できます。旧「収入」「支出」データは残したまま、下の設定で試算への反映を切り替えられます。資産移動は現在、個別資産を指定します。</p>
+          <p class="helper-note">将来の収入・支出はイベントで一元管理できます。収入・支出イベントは1回・毎月・毎年の繰り返しと終了日を設定できます。定期預金・貯蓄保険は満期日に受取口座へ自動振替され、必要に応じて契約満期イベントで日付・受取口座・受取額を指定できます。早期払い出しは途中解約可否とロック終了日を確認します。</p>
           <label class="legacy-record-toggle"><input type="checkbox" v-model="householdData.conditions.useLegacyIncomeExpense" /> 旧収入・支出データを試算に含める（イベントへ移行後はオフ）</label>
           <div v-for="(event, index) in householdData.futureEvents" :key="event.eventId" class="record-editor">
             <div class="record-title">
@@ -1563,10 +1564,10 @@ initializeSavedPlanLibrary(householdData.value)
               </div>
             </div>
             <p class="helper-note">{{ event.enabled === false ? '【適用除外】' : '【適用】' }} {{ eventTypeLabel(event.type) }} ／ {{ event.eventDate || '日付未設定' }} ／ {{ eventAssetSummary(event) }}</p>
-            <p v-if="['assetPurchase','bondPurchase','assetSale','bondMaturity'].includes(event.type)" class="helper-note">大区分は区分全体の資金移動、個別資産は投資商品など資産ごとの指定に使用します。</p>
+            <p v-if="['assetPurchase','bondPurchase','assetSale','bondMaturity','contractMaturity'].includes(event.type)" class="helper-note">大区分は区分全体の資金移動、個別資産は投資商品など資産ごとの指定に使用します。</p>
             <div class="form-grid">
               <label>イベント種類<select v-model="event.type">
-                <option value="income">収入</option><option value="expense">支出</option><option value="assetPurchase">資産購入</option><option value="assetSale">資産売却</option><option value="bondPurchase">債券購入</option><option value="bondMaturity">債券満期</option><option value="autoFunding">自動資金補充</option><option value="cashflow">旧形式（臨時収入・支出）</option>
+                <option value="income">収入</option><option value="expense">支出</option><option value="assetPurchase">資産購入</option><option value="assetSale">資産売却</option><option value="bondPurchase">債券購入</option><option value="bondMaturity">債券満期</option><option value="contractMaturity">定期預金・貯蓄保険の満期</option><option value="autoFunding">自動資金補充</option><option value="cashflow">旧形式（臨時収入・支出）</option>
               </select></label>
               <label>名称<input v-model.trim="event.name" placeholder="イベント名" /></label>
               <label>開始日<input v-model="event.eventDate" type="date" /></label>
@@ -1596,6 +1597,9 @@ initializeSavedPlanLibrary(householdData.value)
                 <label>満期日<input v-model="event.maturityDate" type="date" /></label>
                 <label>満期償還の受取先<select v-model="event.maturityDestinationAssetId"><option value="">現金（既定）</option><option v-for="asset in householdData.assets.filter(item => ['cash','deposit'].includes(item.assetType))" :key="asset.assetId" :value="asset.assetId">{{ asset.name }}</option></select></label>
               </template>
+              <label v-if="event.type === 'contractMaturity'">満期対象の契約資産<select :value="eventAssetSelection(event, 'sourceAssetId')" @change="setEventAssetSelection(event, 'sourceAssetId', $event.target.value)"><option value="">選択してください</option><optgroup label="個別契約資産"><option v-for="asset in householdData.assets.filter(item => ['termDeposit','savingsInsurance'].includes(item.assetType))" :key="asset.assetId" :value="asset.assetId">{{ asset.name }}</option></optgroup></select></label>
+              <label v-if="event.type === 'contractMaturity'">満期受取口座<select :value="eventAssetSelection(event, 'destinationAssetId')" @change="setEventAssetSelection(event, 'destinationAssetId', $event.target.value)"><option value="">現金（既定）</option><optgroup label="受取口座"><option v-for="asset in householdData.assets.filter(item => ['cash','deposit'].includes(item.assetType))" :key="asset.assetId" :value="asset.assetId">{{ asset.name }}</option></optgroup></select></label>
+              <label v-if="event.type === 'contractMaturity'">受取額（円・任意）<input v-model.number="event.payoutAmount" type="number" min="0" placeholder="未入力は満期資産の評価額" /></label>
               <label v-if="event.type === 'bondMaturity'">償還元の資産区分<select :value="eventAssetSelection(event, 'sourceAssetId')" @change="setEventAssetSelection(event, 'sourceAssetId', $event.target.value)"><option value="">選択してください</option><optgroup label="大区分（区分全体）"><option value="category:cash">現金全体</option><option value="category:deposit">預貯金全体</option><option value="category:investment">投資資産全体</option><option value="category:bond">債券全体</option><option value="category:other">その他資産全体</option></optgroup><optgroup label="個別資産（商品単位）"><option v-for="asset in eventAssetOptionsFor(event)" :key="asset.assetId" :value="asset.assetId">{{ asset.name }}{{ asset.future ? "（将来購入）" : "" }}</option></optgroup></select></label>
               <label v-if="event.type === 'bondMaturity'">償還先の資産区分<select :value="eventAssetSelection(event, 'destinationAssetId')" @change="setEventAssetSelection(event, 'destinationAssetId', $event.target.value)"><option value="">選択してください</option><optgroup label="大区分（区分全体）"><option value="category:cash">現金全体</option><option value="category:deposit">預貯金全体</option><option value="category:investment">投資資産全体</option><option value="category:bond">債券全体</option><option value="category:other">その他資産全体</option></optgroup><optgroup label="個別資産（商品単位）"><option v-for="asset in eventAssetOptionsFor(event)" :key="asset.assetId" :value="asset.assetId">{{ asset.name }}{{ asset.future ? "（将来購入）" : "" }}</option></optgroup></select></label>
               <label v-if="event.type === 'bondMaturity'">元本（円）<input v-model.number="event.principalAmount" type="number" min="0" /></label>
@@ -1841,7 +1845,7 @@ initializeSavedPlanLibrary(householdData.value)
           <div><h2>アプリの設定</h2><p>表示や動作に関する設定を、今後の段階で順次追加します。</p></div>
         </section>
         <section class="content-card editor-card">
-          <div class="section-heading"><div><p class="eyebrow">CURRENT SETTINGS</p><h3>現在の設定・保存方式</h3></div><span class="status-pill">V1.9.1</span></div>
+          <div class="section-heading"><div><p class="eyebrow">CURRENT SETTINGS</p><h3>現在の設定・保存方式</h3></div><span class="status-pill">V1.10.0</span></div>
           <div class="year-detail-list">
             <div><span>データ保存</span><strong>IndexedDB（主保存）</strong></div>
             <div><span>互換保存</span><strong>localStorage（ミラー）</strong></div>
@@ -1849,10 +1853,10 @@ initializeSavedPlanLibrary(householdData.value)
             <div><span>自動バックアップ</span><strong>日次・直近7日分</strong></div>
             <div><span>クラウド連携</span><strong>{{ cloudAutoSyncEnabled ? '自動送信ON' : '手動' }}</strong></div>
             <div><span>試算方式</span><strong>月次計算・年次集計</strong></div>
-            <div><span>アプリバージョン</span><strong>V1.9.1</strong></div>
+            <div><span>アプリバージョン</span><strong>V1.10.0</strong></div>
           </div>
           <p class="helper-note">入力データはIndexedDBへ自動保存し、保存日時を記録します。データを変更した日の最初の保存時に日次バックアップを作成し、直近7日分を保持します。自動クラウド同期はローカルからクラウドへの送信に対応します。複数端末間の自動ダウンロード・自動競合解決は未実装です。</p>
-          <section class="content-card notice-card release-history"><div class="section-heading"><div><p class="eyebrow">RELEASE HISTORY & ROADMAP</p><h3>改修履歴・予定</h3></div></div><ul><li><strong>V1.9.1・修正</strong> — 定期預金・貯蓄保険の現在残高入力を削除し、契約開始日から評価額を算出。購入元/購入先の資産区分と満期受取口座を設定できます。</li><li><strong>V1.9.0・実装</strong> — 定期預金・貯蓄保険の資産モデル。契約日・元本・満期日・満期受取額または年率・単利/複利・複利頻度・途中解約条件、一時払/積立払を登録できます。</li><li><strong>V1.8.18・実装</strong> — 人物ごとの計算終了年齢と世帯終了条件。年齢欄は上限を超えると空白表示。</li><li><strong>V1.10.0・予定</strong> — 満期処理と将来イベント連携。</li><li><strong>V1.11.0・予定</strong> — 資産不足時の自動補充。</li><li><strong>V1.12.0・予定</strong> — 比較結果のマイナス表示。</li><li><strong>V1.13.0・予定</strong> — バックアップ方式の改修。</li><li><strong>V1.14.0・予定</strong> — 詳細結果の3つのグラフを統合。</li></ul><p class="helper-note">機能改修は2つ目の数字を上げ、修正・やり直しは3つ目の数字を上げます。</p></section>
+          <section class="content-card notice-card release-history"><div class="section-heading"><div><p class="eyebrow">RELEASE HISTORY & ROADMAP</p><h3>改修履歴・予定</h3></div></div><ul><li><strong>V1.9.1・修正</strong> — 定期預金・貯蓄保険の現在残高入力を削除し、契約開始日から評価額を算出。購入元/購入先の資産区分と満期受取口座を設定できます。</li><li><strong>V1.9.0・実装</strong> — 定期預金・貯蓄保険の資産モデル。契約日・元本・満期日・満期受取額または年率・単利/複利・複利頻度・途中解約条件、一時払/積立払を登録できます。</li><li><strong>V1.8.18・実装</strong> — 人物ごとの計算終了年齢と世帯終了条件。年齢欄は上限を超えると空白表示。</li><li><strong>V1.10.0・実装</strong> — 定期預金・貯蓄保険の満期自動振替、受取口座への入金、契約満期イベント連携。</li><li><strong>V1.11.0・予定</strong> — 資産不足時の自動補充。</li><li><strong>V1.12.0・予定</strong> — 比較結果のマイナス表示。</li><li><strong>V1.13.0・予定</strong> — バックアップ方式の改修。</li><li><strong>V1.14.0・予定</strong> — 詳細結果の3つのグラフを統合。</li></ul><p class="helper-note">機能改修は2つ目の数字を上げ、修正・やり直しは3つ目の数字を上げます。</p></section>
           <button class="secondary-button" @click="settingsSection = 'data'">データ管理を開く</button>
         </section>
       </template>
@@ -1931,7 +1935,7 @@ initializeSavedPlanLibrary(householdData.value)
         <section class="content-card table-card"><div class="section-heading"><div><p class="eyebrow">SCENARIO SUMMARY</p><h3>比較一覧</h3></div></div><div class="table-scroll"><table><thead><tr><th>シナリオ</th><th>最終金融資産</th><th>最終負債</th><th>最終純資産</th><th>累計取り崩し</th><th>現金不足累計</th><th>初回現金不足年</th></tr></thead><tbody><tr v-for="entry in scenarioResults" :key="entry.scenario.scenarioId"><td>{{ entry.scenario.name }}</td><td>{{ formatYen(entry.result.summary.endFinancialAssets) }}</td><td>{{ formatYen(entry.result.summary.endLiabilities) }}</td><td>{{ formatYen(entry.result.summary.endNetWorth) }}</td><td>{{ formatYen(entry.result.summary.totalWithdrawals) }}</td><td>{{ formatYen(entry.result.summary.totalCashShortfall) }}</td><td>{{ entry.result.summary.firstCashShortfallYear ?? 'なし' }}</td></tr></tbody></table></div></section>
         <section class="content-card notice-card"><h3>シナリオの前提</h3><ul><li>標準は登録した基本条件をそのまま使用します。</li><li>楽観・悲観は標準条件に対する年率差を適用します。</li><li>投資利回りの差は現金・預金以外の資産に適用します。</li><li>これは条件を変えた比較試算であり、将来の結果を保証するものではありません。</li></ul></section>
       </template>
-      <footer class="page-footer">未来シミュレーター V1.9.1 · 入力データはこのブラウザ内に自動保存されます。</footer>
+      <footer class="page-footer">未来シミュレーター V1.10.0 · 入力データはこのブラウザ内に自動保存されます。</footer>
     </main>
   </div>
 </template>

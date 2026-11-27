@@ -105,7 +105,7 @@ export function eventAppliesInMonth(event = {}, monthKey) {
 }
 
 export function sortEventsForMonth(events = [], monthKey) {
-  const order = { income: 1, bondMaturity: 2, assetSale: 3, autoFunding: 4, expense: 5, assetPurchase: 6, bondPurchase: 7 }
+  const order = { income: 1, bondMaturity: 2, contractMaturity: 2, assetSale: 3, autoFunding: 4, expense: 5, assetPurchase: 6, bondPurchase: 7 }
   return events
     .filter((event) => event.enabled !== false && eventAppliesInMonth(event, monthKey))
     .map((event, index) => ({ event, index }))

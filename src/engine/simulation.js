@@ -335,7 +335,7 @@ export function runSimulation(input) {
       legacyExpenseRecords, date, Number(input.conditions?.defaultInflationRate || 0),
     )
     const monthEvents = sortEventsForMonth(input.futureEvents || [], monthKey)
-    const legacyEvents = monthEvents.filter((event) => !['income', 'expense', 'assetPurchase', 'assetSale', 'bondPurchase', 'bondMaturity', 'autoFunding'].includes(event.type))
+    const legacyEvents = monthEvents.filter((event) => !['income', 'expense', 'assetPurchase', 'assetSale', 'bondPurchase', 'bondMaturity', 'contractMaturity', 'autoFunding'].includes(event.type))
     const eventAmounts = calculateOneTimeEventAmounts(legacyEvents, date)
     let individualEventIncome = 0
     let individualEventExpense = 0
@@ -415,6 +415,9 @@ export function runSimulation(input) {
           source.balance -= principal
           destination.balance = Number(destination.balance || 0) + principal
         } else eventFundingShortfall += amount || Math.max(0, Number(source?.balance || 0))
+      }
+      else if (event.type === 'contractMaturity') {
+        // 契約満期イベントは利息・積立反映後に処理するため、ここでは保留する。
       }
     }
     const personBenefits = calculatePersonBenefits(input.persons || [], date)
@@ -507,6 +510,43 @@ export function runSimulation(input) {
     const investmentAfterGrowth = sumBalances(investmentAssets)
     const fundingInvestmentWithdrawal = monthlyFundingWithdrawals.reduce((sum, item) => sum + Number(item.amount || 0), 0)
     const investmentGain = investmentAfterGrowth - investmentBefore - contribution + fundingInvestmentWithdrawal
+
+    // V1.10.0：契約資産の満期は当月の積立・運用を反映した後に受取口座へ振り替える。
+    // 手動契約満期イベントがある資産は自動満期と重複させない。
+    const contractMaturityEvents = monthEvents.filter((event) => event.type === 'contractMaturity')
+    const manualContractMaturityByAsset = new Map()
+    for (const event of contractMaturityEvents) {
+      const source = resolveEventAsset(investmentAssets, event.sourceAssetCategory, event.sourceAssetId)
+      if (source && isContractAsset(source)) manualContractMaturityByAsset.set(source.assetId, event)
+    }
+    const maturedContractIds = []
+    for (const asset of investmentAssets) {
+      if (!isContractAsset(asset)) continue
+      const manualEvent = manualContractMaturityByAsset.get(asset.assetId)
+      const autoMaturityDue = asset.maturityDate && asset.maturityDate.slice(0, 7) <= monthKey
+      if (!manualEvent && !autoMaturityDue) continue
+      const allAssets = [...cashAssets, ...investmentAssets]
+      let destination = manualEvent
+        ? resolveEventAsset(allAssets, manualEvent.destinationAssetCategory, manualEvent.destinationAssetId)
+        : allAssets.find((item) => item.assetId === asset.maturityDestinationAssetId)
+      if (!destination || destination === asset) {
+        destination = cashAssets.find((item) => item.assetType === 'cash') || cashAssets[0] || ensureCashAsset(cashAssets, 'cash')
+      }
+      const eventDate = manualEvent?.eventDate || manualEvent?.date || ''
+      const isEarlySurrender = Boolean(manualEvent && asset.maturityDate && eventDate && eventDate.slice(0, 7) < asset.maturityDate.slice(0, 7))
+      if (isEarlySurrender && (!asset.earlySurrenderAllowed || (asset.lockupUntil && eventDate < asset.lockupUntil))) continue
+      let configuredPayout = manualEvent ? Number(manualEvent.payoutAmount || 0) : 0
+      if (configuredPayout <= 0 && isEarlySurrender && Number(asset.surrenderValueAmount || 0) > 0) {
+        configuredPayout = Number(asset.surrenderValueAmount || 0)
+      } else if (configuredPayout <= 0 && !isEarlySurrender && asset.maturityPayoutMode === 'amount') {
+        configuredPayout = Number(asset.maturityPayoutAmount || 0)
+      }
+      const payout = Math.max(0, configuredPayout > 0 ? configuredPayout : Number(asset.balance || 0))
+      destination.balance = Number(destination.balance || 0) + payout
+      asset.balance = 0
+      maturedContractIds.push(asset.assetId)
+    }
+    if (maturedContractIds.length) investmentAssets = investmentAssets.filter((asset) => !maturedContractIds.includes(asset.assetId))
 
     // 現金が最低確保額を下回った場合、優先順位に従って投資資産を売却する。
     const withdrawalsEnabled = input.conditions?.withdrawal?.enabled !== false

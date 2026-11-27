@@ -808,3 +808,49 @@ test('人物ごとの計算終了年齢で一人の収入だけ停止し、他�
   assert.equal(result.annualResults[1].otherIncome, 240000)
   assert.equal(result.annualResults[2].otherIncome, 240000)
 })
+
+
+test('V1.10.0 定期預金は満期に指定受取口座へ満期額を振り替えて資産から除く', () => {
+  const input = structuredClone(baseInput)
+  input.incomeRecords = []
+  input.expenseRecords = []
+  input.assets = [
+    { assetId: 'cash-maturity', assetType: 'cash', name: '現金', balance: 200000, annualReturn: 0 },
+    { assetId: 'deposit-maturity', assetType: 'deposit', name: '満期受取口座', balance: 0, annualReturn: 0 },
+    { assetId: 'td-maturity', assetType: 'termDeposit', name: '定期預金', principalAmount: 100000, contractDate: '2026-01-01', maturityDate: '2026-12-01', maturityPayoutMode: 'amount', maturityPayoutAmount: 120000, interestMethod: 'compound', compoundingFrequency: 12, purchaseSourceAssetCategory: 'cash', maturityDestinationAssetId: 'deposit-maturity' },
+  ]
+  const result = runSimulation(input)
+  assert.equal(result.endingAssets.find((asset) => asset.assetId === 'deposit-maturity')?.balance, 120000)
+  assert.equal(result.endingAssets.some((asset) => asset.assetId === 'td-maturity'), false)
+})
+
+test('V1.10.0 契約満期イベントは指定月に指定口座へ払い出し、契約資産を除く', () => {
+  const input = structuredClone(baseInput)
+  input.incomeRecords = []
+  input.expenseRecords = []
+  input.assets = [
+    { assetId: 'cash-event-maturity', assetType: 'cash', name: '現金', balance: 200000, annualReturn: 0 },
+    { assetId: 'deposit-event-maturity', assetType: 'deposit', name: '受取口座', balance: 0, annualReturn: 0 },
+    { assetId: 'insurance-event-maturity', assetType: 'savingsInsurance', name: '貯蓄保険', principalAmount: 100000, contractDate: '2026-01-01', maturityDate: '2030-01-01', maturityPayoutMode: 'amount', maturityPayoutAmount: 125000, interestMethod: 'compound', compoundingFrequency: 12, earlySurrenderAllowed: true, purchaseSourceAssetCategory: 'cash' },
+  ]
+  input.futureEvents = [{ eventId: 'contract-maturity-event', enabled: true, type: 'contractMaturity', eventDate: '2026-06-01', sourceAssetId: 'insurance-event-maturity', destinationAssetId: 'deposit-event-maturity', payoutAmount: 110000 }]
+  const result = runSimulation(input)
+  assert.equal(result.endingAssets.find((asset) => asset.assetId === 'deposit-event-maturity')?.balance, 110000)
+  assert.equal(result.endingAssets.some((asset) => asset.assetId === 'insurance-event-maturity'), false)
+})
+
+
+test('V1.10.0 契約満期イベントは解約不可またはロック期間中の早期払い出しを行わない', () => {
+  const input = structuredClone(baseInput)
+  input.incomeRecords = []
+  input.expenseRecords = []
+  input.assets = [
+    { assetId: 'cash-lock', assetType: 'cash', name: '現金', balance: 200000, annualReturn: 0 },
+    { assetId: 'dep-lock', assetType: 'deposit', name: '受取口座', balance: 0, annualReturn: 0 },
+    { assetId: 'locked-contract', assetType: 'termDeposit', name: 'ロック中の定期', principalAmount: 100000, contractDate: '2026-01-01', maturityDate: '2030-01-01', maturityPayoutMode: 'amount', maturityPayoutAmount: 130000, interestMethod: 'compound', compoundingFrequency: 12, earlySurrenderAllowed: true, lockupUntil: '2027-01-01', surrenderValueAmount: 105000, purchaseSourceAssetCategory: 'cash' },
+  ]
+  input.futureEvents = [{ eventId: 'early-contract-maturity', enabled: true, type: 'contractMaturity', eventDate: '2026-06-01', sourceAssetId: 'locked-contract', destinationAssetId: 'dep-lock' }]
+  const result = runSimulation(input)
+  assert.equal(result.endingAssets.some((asset) => asset.assetId === 'locked-contract'), true)
+  assert.equal(result.endingAssets.find((asset) => asset.assetId === 'dep-lock')?.balance, 0)
+})
