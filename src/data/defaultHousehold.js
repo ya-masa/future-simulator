@@ -13,6 +13,7 @@ export const defaultHousehold = {
       name: '本人',
       relationship: 'self',
       birthDate: '1980-04-01',
+      calculationEndAge: 100,
       retirementAge: 65,
       pensionStartAge: 65,
       pensionAnnualAmount: 0,

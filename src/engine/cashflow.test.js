@@ -36,3 +36,18 @@ test('通常給与・賞与は退職予定年齢で停止する', () => {
   assert.equal(breakdown.salary, 0)
   assert.equal(breakdown.bonus, 0)
 })
+
+test('人物の計算終了年齢に到達すると、その人物に紐づく給与・年金・その他収入を停止する', () => {
+  const limitedPerson = { ...person, calculationEndAge: 66 }
+  const records = [
+    { category: 'salary', personId: 'p1', amount: 300000, frequency: 'monthly', startDate: '2020-04-01' },
+    { category: 'pension', personId: 'p1', amount: 1200000, frequency: 'annual', startDate: '2025-01-01' },
+    { category: 'other', personId: 'p1', amount: 50000, frequency: 'monthly', startDate: '2025-01-01' },
+  ]
+  const beforeCutoff = calculateMonthlyIncomeBreakdown(records, new Date(2025, 2, 1), [limitedPerson])
+  const atCutoff = calculateMonthlyIncomeBreakdown(records, new Date(2026, 3, 1), [limitedPerson])
+  assert.ok(beforeCutoff.salary > 0 || beforeCutoff.pension > 0 || beforeCutoff.other > 0)
+  assert.deepEqual(atCutoff, { salary: 0, bonus: 0, pension: 0, other: 0 })
+})
+
+

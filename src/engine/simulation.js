@@ -381,7 +381,7 @@ export function runSimulation(input) {
       }
     }
     const personBenefits = calculatePersonBenefits(input.persons || [], date)
-    const registeredPensionIncome = calculateMonthlyPensionIncome(input.pensions || [], date, input.conditions || {})
+    const registeredPensionIncome = calculateMonthlyPensionIncome(input.pensions || [], date, input.conditions || {}, input.persons || [])
     const monthlyPensionIncome = incomeBreakdown.pension + personBenefits.pensionIncome + registeredPensionIncome
     const monthlyIncome = incomeBreakdown.salary + incomeBreakdown.bonus + incomeBreakdown.other + eventAmounts.income + individualEventIncome + monthlyPensionIncome + personBenefits.retirementBenefit
     const monthlyExpense = regularExpense + eventAmounts.expense + individualEventExpense
@@ -492,6 +492,15 @@ export function runSimulation(input) {
     yearWithdrawals.push(...monthlyWithdrawals)
     // 年間の現金不足は、その年に新たに発生した不足額の合計。最大不足残高ではない。
     yearCashShortfall += monthlyCashShortfall + eventFundingShortfall + cashflowFundingShortfall
+
+    // 年末時点で全員が人物別の計算終了年齢に達していれば、世帯の試算を終了する。
+    if (date.getMonth() === 11 && (input.persons || []).length > 0) {
+      const allPersonsReachedCutoff = input.persons.every((person) => {
+        const age = getAge(person.birthDate, new Date(year, 11, 31))
+        return age == null || age >= Number(person.calculationEndAge ?? 100)
+      })
+      if (allPersonsReachedCutoff) break
+    }
   }
 
   annualResults.push(buildAnnualResult({
@@ -561,6 +570,8 @@ function calculatePersonBenefits(persons, date) {
   for (const person of persons) {
     const ageAtMonthEnd = getAge(person.birthDate, monthEnd)
     if (ageAtMonthEnd == null) continue
+    const calculationEndAge = Number(person.calculationEndAge ?? 100)
+    if (ageAtMonthEnd >= calculationEndAge) continue
 
     const pensionStartAge = Number(person.pensionStartAge ?? 65)
     const annualPension = Math.max(0, Number(person.pensionAnnualAmount || 0))

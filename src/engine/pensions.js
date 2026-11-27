@@ -79,6 +79,15 @@ export function normalizePensionData(input) {
   return { data: input, notices }
 }
 
+function getPersonAge(birthDate, date) {
+  if (!birthDate) return null
+  const birth = new Date(`${birthDate}T00:00:00`)
+  if (Number.isNaN(birth.getTime())) return null
+  let age = date.getFullYear() - birth.getFullYear()
+  if (date.getMonth() < birth.getMonth() || (date.getMonth() === birth.getMonth() && date.getDate() < birth.getDate())) age -= 1
+  return age
+}
+
 function isActiveInMonth(record, date) {
   const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
   const start = String(record.startDate || '0000-01-01').slice(0, 7)
@@ -100,10 +109,18 @@ function resolvePensionGrowthRate(pension, conditions = {}) {
   return Number(pension.annualGrowthRate || 0)
 }
 
-export function calculateMonthlyPensionIncome(pensions = [], date, conditions = {}) {
+export function calculateMonthlyPensionIncome(pensions = [], date, conditions = {}, persons = []) {
+  const personById = new Map(persons.map((person) => [person.personId, person]))
+  const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0)
   return pensions.reduce((total, pension) => {
     if (pension.enabled === false) return total
     if (!isActiveInMonth(pension, date)) return total
+    const person = personById.get(pension.personId)
+    if (person) {
+      const age = getPersonAge(person.birthDate, monthEnd)
+      const cutoff = Number(person.calculationEndAge ?? 100)
+      if (age != null && age >= cutoff) return total
+    }
     const annualAmount = Math.max(0, Number(pension.annualAmount || 0))
     if (!annualAmount) return total
     const startYear = Number(String(pension.startDate || '').slice(0, 4)) || date.getFullYear()

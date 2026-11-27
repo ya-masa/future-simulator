@@ -1,5 +1,13 @@
 import { getAge, isActiveInMonth, yearsSince } from './dateUtils.js'
 
+function personPastCalculationAge(record, personById, monthEnd) {
+  if (!record.personId || !personById.has(record.personId)) return false
+  const person = personById.get(record.personId)
+  const cutoff = Number(person.calculationEndAge ?? 100)
+  const age = getAge(person.birthDate, monthEnd)
+  return age != null && Number.isFinite(cutoff) && age >= cutoff
+}
+
 function monthlyAmount(record, date) {
   if (record.frequency === 'monthly') return Number(record.amount || 0)
   if (record.frequency === 'annual') return Number(record.amount || 0) / 12
@@ -19,6 +27,7 @@ export function calculateMonthlyIncomeBreakdown(records = [], date, persons = []
 
   for (const record of records) {
     if (!isActiveInMonth(record, date)) continue
+    if (personPastCalculationAge(record, personById, monthEnd)) continue
     if (['salary', 'bonus'].includes(record.category) && record.personId && personById.has(record.personId)) {
       const person = personById.get(record.personId)
       const age = getAge(person.birthDate, monthEnd)
@@ -73,6 +82,7 @@ export function calculateMonthlyIncomeByAssetType(records = [], date, persons = 
   const totals = { cash: 0, deposit: 0 }
   for (const record of records) {
     if (!isActiveInMonth(record, date)) continue
+    if (personPastCalculationAge(record, personById, monthEnd)) continue
     if (['salary', 'bonus'].includes(record.category) && record.personId && personById.has(record.personId)) {
       const person = personById.get(record.personId)
       const age = getAge(person.birthDate, monthEnd)

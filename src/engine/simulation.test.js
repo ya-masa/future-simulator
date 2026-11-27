@@ -788,3 +788,23 @@ test('預貯金などの設定利回りによる残高増加も金融資産収�
   assert.ok(row.financialAssetIncome > 0)
   assert.equal(row.income, row.financialAssetIncome)
 })
+
+
+test('人物ごとの計算終了年齢で一人の収入だけ停止し、他の人物の収入は継続する', () => {
+  const input = structuredClone(baseInput)
+  input.household.endAge = 35
+  input.conditions.calculationEndAge = 35
+  input.persons = [
+    { personId: 'p1', name: '人物1', birthDate: '2000-01-01', calculationEndAge: 27 },
+    { personId: 'p2', name: '人物2', birthDate: '2005-01-01', calculationEndAge: 30 },
+  ]
+  input.incomeRecords = [
+    { category: 'other', personId: 'p1', amount: 10000, frequency: 'monthly', startDate: '2026-01-01' },
+    { category: 'other', personId: 'p2', amount: 20000, frequency: 'monthly', startDate: '2026-01-01' },
+  ]
+  input.expenseRecords = []
+  const result = runSimulation(input)
+  assert.equal(result.annualResults[0].otherIncome, 360000)
+  assert.equal(result.annualResults[1].otherIncome, 240000)
+  assert.equal(result.annualResults[2].otherIncome, 240000)
+})

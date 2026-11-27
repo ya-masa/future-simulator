@@ -86,3 +86,11 @@ test('試算対象外の年金は収入に含めない', () => {
   const pension = { pensionType: 'private', adjustmentMode: 'custom', annualAmount: 1200000, startDate: '2026-01-01', enabled: false }
   assert.equal(calculateMonthlyPensionIncome([pension], new Date(2026, 0, 1)), 0)
 })
+
+
+test('人物の計算終了年齢に達した後は、その人物に紐づく年金を停止する', () => {
+  const pension = { personId: 'p1', pensionType: 'private', adjustmentMode: 'custom', annualAmount: 1200000, startDate: '2026-01-01' }
+  const persons = [{ personId: 'p1', birthDate: '1960-04-01', calculationEndAge: 66 }]
+  assert.equal(calculateMonthlyPensionIncome([pension], new Date(2026, 2, 1), {}, persons), 100000)
+  assert.equal(calculateMonthlyPensionIncome([pension], new Date(2027, 3, 1), {}, persons), 0)
+})
