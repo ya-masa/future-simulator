@@ -55,7 +55,26 @@ const assetSegmentLabels = {
     ctx.restore()
   },
 }
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip, Legend, Filler, assetSegmentLabels)
+const zeroBaseline = {
+  id: 'zeroBaseline',
+  beforeDatasetsDraw(chart, args, options) {
+    if (!options?.enabled) return
+    const yScale = chart.scales?.y
+    if (!yScale || 0 < yScale.min || 0 > yScale.max) return
+    const y = yScale.getPixelForValue(0)
+    const { ctx, chartArea } = chart
+    ctx.save()
+    ctx.beginPath()
+    ctx.moveTo(chartArea.left, y)
+    ctx.lineTo(chartArea.right, y)
+    ctx.strokeStyle = options.color || '#6f6256'
+    ctx.lineWidth = options.width || 2.5
+    ctx.setLineDash([])
+    ctx.stroke()
+    ctx.restore()
+  },
+}
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip, Legend, Filler, assetSegmentLabels, zeroBaseline)
 
 const STORAGE_KEY = 'future-simulator-household-v02'
 function loadHousehold() {
@@ -242,7 +261,9 @@ const annualCashflowChartData = computed(() => ({
     borderColor: '#b36b54', backgroundColor: 'rgba(179, 107, 84, 0.06)', tension: 0.22,
   }, {
     label: '年間収支', data: simulationResult.value.annualResults.map((item) => item.netCashflow),
-    borderColor: '#8b6848', backgroundColor: 'transparent', borderDash: [5, 3], tension: 0.22,
+    borderColor: '#8b6848', pointBackgroundColor: (context) => Number(context.raw) < 0 ? '#c43d3d' : '#8b6848',
+    segment: { borderColor: (context) => Number(context.p1.parsed.y) < 0 ? '#c43d3d' : '#8b6848' },
+    backgroundColor: 'transparent', borderDash: [5, 3], tension: 0.22,
   }],
 }))
 const nisaChartData = computed(() => ({
@@ -264,6 +285,8 @@ const scenarioChartData = computed(() => ({
     label: `${entry.scenario.name}：金融資産`,
     data: entry.result.annualResults.map((item) => getComparableFinancialAssets(item.closingFinancialAssets, item.cumulativeCashShortfall)),
     borderColor: ['#8b6848', '#78936a', '#b36b54'][index % 3],
+    segment: { borderColor: (context) => Number(context.p1.parsed.y) < 0 ? '#c43d3d' : ['#8b6848', '#78936a', '#b36b54'][index % 3] },
+    pointBackgroundColor: (context) => Number(context.raw) < 0 ? '#c43d3d' : ['#8b6848', '#78936a', '#b36b54'][index % 3],
     backgroundColor: 'transparent',
     borderDash: index === 0 ? [] : index === 1 ? [5, 3] : [2, 3],
     fill: false,
@@ -293,6 +316,8 @@ const planComparisonChartData = computed(() => {
         label: entry.plan.name,
         data: years.map((year) => byYear.has(year) ? byYear.get(year) : null),
         borderColor: palette[index % palette.length],
+        segment: { borderColor: (context) => Number(context.p1.parsed.y) < 0 ? '#c43d3d' : palette[index % palette.length] },
+        pointBackgroundColor: (context) => Number(context.raw) < 0 ? '#c43d3d' : palette[index % palette.length],
         backgroundColor: 'transparent',
         borderDash: index === 0 ? [] : index % 2 ? [5, 3] : [2, 3],
         fill: false,
@@ -307,10 +332,9 @@ const planComparisonYearRows = computed(() => {
   return years.map((year) => {
     const values = validEntries.map((entry) => {
       const row = entry.result.annualResults.find((item) => item.year === year)
-      return { planId: entry.plan.planId, assets: row ? getComparableFinancialAssets(row.closingFinancialAssets, row.cumulativeCashShortfall) : null, ages: row?.ages || [] }
+      return { planId: entry.plan.planId, assets: row ? getComparableFinancialAssets(row.closingFinancialAssets, row.cumulativeCashShortfall) : null }
     })
-    const referenceAge = values[0]?.ages?.[0]?.age
-    return { year, referenceAge, values }
+    return { year, values }
   })
 })
 const chartOptions = {
@@ -321,8 +345,21 @@ const chartOptions = {
   },
   scales: { y: { ticks: { callback: (value) => `${Math.round(value / 10000).toLocaleString('ja-JP')}万円` } } },
 }
+const assetTooltipTitle = (items) => {
+  const index = items?.[0]?.dataIndex
+  const row = simulationResult.value.annualResults[index]
+  const ages = (row?.ages || []).filter((person) => person.age != null).map((person) => `${person.name} ${person.age}歳`)
+  return [`${row?.year ?? ''}年`, ...ages]
+}
 const assetChartOptions = {
   ...chartOptions,
+  plugins: {
+    ...chartOptions.plugins,
+    tooltip: {
+      ...chartOptions.plugins.tooltip,
+      callbacks: { ...chartOptions.plugins.tooltip.callbacks, title: assetTooltipTitle },
+    },
+  },
   scales: {
     x: { stacked: true },
     y: { stacked: true, beginAtZero: true, grace: '10%', ticks: { callback: (value) => `${Math.round(value / 10000).toLocaleString('ja-JP')}万円` } },
@@ -337,6 +374,10 @@ const homeAssetChartOptions = {
 }
 const yearlyChartOptions = {
   ...chartOptions,
+  plugins: {
+    ...chartOptions.plugins,
+    zeroBaseline: { enabled: true, color: '#6f6256', width: 2.5 },
+  },
   scales: {
     x: { ticks: { autoSkip: false, maxRotation: 0, minRotation: 0 } },
     y: { ticks: { callback: (value) => `${Math.round(value / 10000).toLocaleString('ja-JP')}万円` } },
@@ -344,6 +385,16 @@ const yearlyChartOptions = {
 }
 const yearlyAssetChartOptions = {
   ...assetChartOptions,
+  plugins: {
+    ...assetChartOptions.plugins,
+    tooltip: {
+      ...assetChartOptions.plugins.tooltip,
+      callbacks: {
+        ...assetChartOptions.plugins.tooltip.callbacks,
+        title: assetTooltipTitle,
+      },
+    },
+  },
   scales: {
     x: { stacked: true, ticks: { autoSkip: false, maxRotation: 0, minRotation: 0 } },
     y: { stacked: true, beginAtZero: true, grace: '10%', ticks: { callback: (value) => `${Math.round(value / 10000).toLocaleString('ja-JP')}万円` } },
@@ -1847,7 +1898,7 @@ initializeSavedPlanLibrary(householdData.value)
           <div><h2>アプリの設定</h2><p>表示や動作に関する設定を、今後の段階で順次追加します。</p></div>
         </section>
         <section class="content-card editor-card">
-          <div class="section-heading"><div><p class="eyebrow">CURRENT SETTINGS</p><h3>現在の設定・保存方式</h3></div><span class="status-pill">V1.12.0</span></div>
+          <div class="section-heading"><div><p class="eyebrow">CURRENT SETTINGS</p><h3>現在の設定・保存方式</h3></div><span class="status-pill">V1.12.1</span></div>
           <div class="year-detail-list">
             <div><span>データ保存</span><strong>IndexedDB（主保存）</strong></div>
             <div><span>互換保存</span><strong>localStorage（ミラー）</strong></div>
@@ -1855,10 +1906,10 @@ initializeSavedPlanLibrary(householdData.value)
             <div><span>自動バックアップ</span><strong>日次・直近7日分</strong></div>
             <div><span>クラウド連携</span><strong>{{ cloudAutoSyncEnabled ? '自動送信ON' : '手動' }}</strong></div>
             <div><span>試算方式</span><strong>月次計算・年次集計</strong></div>
-            <div><span>アプリバージョン</span><strong>V1.12.0</strong></div>
+            <div><span>アプリバージョン</span><strong>V1.12.1</strong></div>
           </div>
           <p class="helper-note">入力データはIndexedDBへ自動保存し、保存日時を記録します。データを変更した日の最初の保存時に日次バックアップを作成し、直近7日分を保持します。自動クラウド同期はローカルからクラウドへの送信に対応します。複数端末間の自動ダウンロード・自動競合解決は未実装です。</p>
-          <section class="content-card notice-card release-history"><div class="section-heading"><div><p class="eyebrow">RELEASE HISTORY & ROADMAP</p><h3>改修履歴・予定</h3></div></div><ul><li><strong>V1.9.1・修正</strong> — 定期預金・貯蓄保険の現在残高入力を削除し、契約開始日から評価額を算出。購入元/購入先の資産区分と満期受取口座を設定できます。</li><li><strong>V1.9.0・実装</strong> — 定期預金・貯蓄保険の資産モデル。契約日・元本・満期日・満期受取額または年率・単利/複利・複利頻度・途中解約条件、一時払/積立払を登録できます。</li><li><strong>V1.8.18・実装</strong> — 人物ごとの計算終了年齢と世帯終了条件。年齢欄は上限を超えると空白表示。</li><li><strong>V1.10.0・実装</strong> — 定期預金・貯蓄保険の満期自動振替、受取口座への入金、契約満期イベント連携。</li><li><strong>V1.11.3・修正</strong> — 現金・預貯金ごとに「自動補充・不足精算に使用する」を設定できます。チェックを外した口座は自動補充と未解消不足の精算から除外します。</li><li><strong>V1.11.2・修正</strong> — 年間収支だけで返済額を判定する不具合を修正。未解消不足を現金→預貯金→換金可能な投資資産から実際に充当し、資産残高と不足額を整合させます。</li><li><strong>V1.11.1・修正（旧）</strong> — 年間収支の黒字を使って不足を返済する処理を追加しましたが、資産残高との精算が不十分でした。</li><li><strong>V1.11.0・実装</strong> — 資金不足時は現金→預貯金→換金可能な投資資産の順に補充。契約資産は途中解約可否・ロック期間・返戻金を確認し、満期月の二重使用を防ぎます。</li><li><strong>V1.12.0・実装</strong> — 比較表示は金融資産から未解消現金不足を差し引き、資産不足を負数として表示します。通常の試算残高は変更しません。</li><li><strong>V1.13.0・予定</strong> — バックアップ方式の改修。</li><li><strong>V1.14.0・予定</strong> — 詳細結果の3つのグラフを統合。</li></ul><p class="helper-note">機能改修は2つ目の数字を上げ、修正・やり直しは3つ目の数字を上げます。</p></section>
+          <section class="content-card notice-card release-history"><div class="section-heading"><div><p class="eyebrow">RELEASE HISTORY & ROADMAP</p><h3>改修履歴・予定</h3></div></div><ul><li><strong>V1.9.1・修正</strong> — 定期預金・貯蓄保険の現在残高入力を削除し、契約開始日から評価額を算出。購入元/購入先の資産区分と満期受取口座を設定できます。</li><li><strong>V1.9.0・実装</strong> — 定期預金・貯蓄保険の資産モデル。契約日・元本・満期日・満期受取額または年率・単利/複利・複利頻度・途中解約条件、一時払/積立払を登録できます。</li><li><strong>V1.8.18・実装</strong> — 人物ごとの計算終了年齢と世帯終了条件。年齢欄は上限を超えると空白表示。</li><li><strong>V1.10.0・実装</strong> — 定期預金・貯蓄保険の満期自動振替、受取口座への入金、契約満期イベント連携。</li><li><strong>V1.11.3・修正</strong> — 現金・預貯金ごとに「自動補充・不足精算に使用する」を設定できます。チェックを外した口座は自動補充と未解消不足の精算から除外します。</li><li><strong>V1.11.2・修正</strong> — 年間収支だけで返済額を判定する不具合を修正。未解消不足を現金→預貯金→換金可能な投資資産から実際に充当し、資産残高と不足額を整合させます。</li><li><strong>V1.11.1・修正（旧）</strong> — 年間収支の黒字を使って不足を返済する処理を追加しましたが、資産残高との精算が不十分でした。</li><li><strong>V1.11.0・実装</strong> — 資金不足時は現金→預貯金→換金可能な投資資産の順に補充。契約資産は途中解約可否・ロック期間・返戻金を確認し、満期月の二重使用を防ぎます。</li><li><strong>V1.12.1・修正</strong> — 比較のマイナス値を赤字表示。金融資産推移のツールチップに世帯全員の年齢を表示し、比較表は年と金額のみ。年間収支グラフの0ラインを太線化。</li><li><strong>V1.12.0・実装</strong> — 比較表示は金融資産から未解消現金不足を差し引き、資産不足を負数として表示します。通常の試算残高は変更しません。</li><li><strong>V1.13.0・予定</strong> — バックアップ方式の改修。</li><li><strong>V1.14.0・予定</strong> — 詳細結果の3つのグラフを統合。</li></ul><p class="helper-note">機能改修は2つ目の数字を上げ、修正・やり直しは3つ目の数字を上げます。</p></section>
           <button class="secondary-button" @click="settingsSection = 'data'">データ管理を開く</button>
         </section>
       </template>
@@ -1902,20 +1953,20 @@ initializeSavedPlanLibrary(householdData.value)
         </section>
         <section class="content-card table-card">
           <div class="section-heading"><div><p class="eyebrow">PLAN SUMMARY</p><h3>比較結果（未解消不足を反映）</h3></div></div>
-          <div class="table-scroll"><table><thead><tr><th>プラン</th><th>最低比較資産</th><th>最低となる年・年齢</th><th>最終年</th><th>最終比較資産</th></tr></thead>
+          <div class="table-scroll"><table><thead><tr><th>プラン</th><th>最低比較資産</th><th>最低となる年</th><th>最終年</th><th>最終比較資産</th></tr></thead>
             <tbody><tr v-for="entry in planComparisonEntries.filter((item) => item.summary)" :key="entry.plan.planId">
-              <td>{{ entry.plan.name }}</td><td>{{ formatYen(entry.summary.minimumAssets) }}</td>
-              <td>{{ entry.summary.minimumYear }}年 ／ {{ entry.summary.minimumAges.map((person) => `${person.name} ${person.age == null ? '年齢不明' : `${person.age}歳`}`).join('・') || '年齢不明' }}</td>
-              <td>{{ entry.summary.finalYear }}年</td><td>{{ formatYen(entry.summary.finalAssets) }}</td>
+              <td>{{ entry.plan.name }}</td><td :class="entry.summary.minimumAssets < 0 ? 'negative' : ''">{{ formatYen(entry.summary.minimumAssets) }}</td>
+              <td>{{ entry.summary.minimumYear }}年</td>
+              <td>{{ entry.summary.finalYear }}年</td><td :class="entry.summary.finalAssets < 0 ? 'negative' : ''">{{ formatYen(entry.summary.finalAssets) }}</td>
             </tr></tbody>
           </table></div>
         </section>
         <section class="content-card table-card">
-          <div class="section-heading"><div><p class="eyebrow">AGE BY AGE</p><h3>年齢別・金融資産推移</h3></div></div>
-          <p class="helper-note">年末金融資産を年ごとに表示します。年齢は最初に登録した人物を基準にしています。</p>
-          <div class="table-scroll"><table><thead><tr><th>年</th><th>基準人物の年齢</th><th v-for="entry in planComparisonEntries.filter((item) => item.result)" :key="entry.plan.planId">{{ entry.plan.name }}</th></tr></thead>
-            <tbody><tr v-for="row in planComparisonYearRows" :key="row.year"><td>{{ row.year }}年</td><td>{{ row.referenceAge == null ? '—' : `${row.referenceAge}歳` }}</td>
-              <td v-for="value in row.values" :key="value.planId">{{ value.assets == null ? '—' : formatYen(value.assets) }}</td>
+          <div class="section-heading"><div><p class="eyebrow">AGE BY AGE</p><h3>年次・金融資産推移</h3></div></div>
+          <p class="helper-note">年末金融資産を年ごとに表示します。比較表は年と金額のみを表示します。</p>
+          <div class="table-scroll"><table><thead><tr><th>年</th><th v-for="entry in planComparisonEntries.filter((item) => item.result)" :key="entry.plan.planId">{{ entry.plan.name }}</th></tr></thead>
+            <tbody><tr v-for="row in planComparisonYearRows" :key="row.year"><td>{{ row.year }}年</td>
+              <td v-for="value in row.values" :key="value.planId" :class="value.assets == null ? '' : value.assets < 0 ? 'negative' : ''">{{ value.assets == null ? '—' : formatYen(value.assets) }}</td>
             </tr></tbody>
           </table></div>
         </section>
@@ -1927,17 +1978,17 @@ initializeSavedPlanLibrary(householdData.value)
         <section class="metric-grid scenario-metric-grid">
           <article v-for="entry in scenarioResults" :key="entry.scenario.scenarioId" class="metric-card" :class="{ 'highlight-card': entry.scenario.scenarioId === 'standard' }">
             <span>{{ entry.scenario.name }}シナリオ・最終年比較資産（不足反映）</span>
-            <strong>{{ formatYen(getComparableFinancialAssets(entry.result.summary.endFinancialAssets, entry.result.summary.endCashShortfall ?? entry.result.summary.totalCashShortfall)) }}</strong>
+            <strong :class="getComparableFinancialAssets(entry.result.summary.endFinancialAssets, entry.result.summary.endCashShortfall ?? entry.result.summary.totalCashShortfall) < 0 ? 'negative' : ''">{{ formatYen(getComparableFinancialAssets(entry.result.summary.endFinancialAssets, entry.result.summary.endCashShortfall ?? entry.result.summary.totalCashShortfall)) }}</strong>
             <small>最終純資産：{{ formatYen(entry.result.summary.endNetWorth) }}</small>
             <small v-if="entry.result.summary.firstCashShortfallYear" class="negative">初回の現金不足：{{ entry.result.summary.firstCashShortfallYear }}年</small>
             <small v-else class="positive">現金不足の予測なし</small>
           </article>
         </section>
         <section class="content-card chart-card"><div class="section-heading"><div><p class="eyebrow">SCENARIO PROJECTION</p><h3>シナリオ別・比較上の金融資産（不足反映）</h3></div><span class="unit-label">円</span></div><div class="chart-wrap"><Line :data="scenarioChartData" :options="chartOptions" /></div></section>
-        <section class="content-card table-card"><div class="section-heading"><div><p class="eyebrow">SCENARIO SUMMARY</p><h3>比較一覧</h3></div></div><div class="table-scroll"><table><thead><tr><th>シナリオ</th><th>最終比較資産</th><th>最終負債</th><th>最終純資産</th><th>累計取り崩し</th><th>未解消現金不足</th><th>初回現金不足年</th></tr></thead><tbody><tr v-for="entry in scenarioResults" :key="entry.scenario.scenarioId"><td>{{ entry.scenario.name }}</td><td>{{ formatYen(getComparableFinancialAssets(entry.result.summary.endFinancialAssets, entry.result.summary.endCashShortfall ?? entry.result.summary.totalCashShortfall)) }}</td><td>{{ formatYen(entry.result.summary.endLiabilities) }}</td><td>{{ formatYen(entry.result.summary.endNetWorth) }}</td><td>{{ formatYen(entry.result.summary.totalWithdrawals) }}</td><td>{{ formatYen(entry.result.summary.totalCashShortfall) }}</td><td>{{ entry.result.summary.firstCashShortfallYear ?? 'なし' }}</td></tr></tbody></table></div></section>
+        <section class="content-card table-card"><div class="section-heading"><div><p class="eyebrow">SCENARIO SUMMARY</p><h3>比較一覧</h3></div></div><div class="table-scroll"><table><thead><tr><th>シナリオ</th><th>最終比較資産</th><th>最終負債</th><th>最終純資産</th><th>累計取り崩し</th><th>未解消現金不足</th><th>初回現金不足年</th></tr></thead><tbody><tr v-for="entry in scenarioResults" :key="entry.scenario.scenarioId"><td>{{ entry.scenario.name }}</td><td :class="getComparableFinancialAssets(entry.result.summary.endFinancialAssets, entry.result.summary.endCashShortfall ?? entry.result.summary.totalCashShortfall) < 0 ? 'negative' : ''">{{ formatYen(getComparableFinancialAssets(entry.result.summary.endFinancialAssets, entry.result.summary.endCashShortfall ?? entry.result.summary.totalCashShortfall)) }}</td><td :class="entry.result.summary.endLiabilities < 0 ? 'negative' : ''">{{ formatYen(entry.result.summary.endLiabilities) }}</td><td :class="entry.result.summary.endNetWorth < 0 ? 'negative' : ''">{{ formatYen(entry.result.summary.endNetWorth) }}</td><td :class="entry.result.summary.totalWithdrawals < 0 ? 'negative' : ''">{{ formatYen(entry.result.summary.totalWithdrawals) }}</td><td :class="entry.result.summary.totalCashShortfall < 0 ? 'negative' : ''">{{ formatYen(entry.result.summary.totalCashShortfall) }}</td><td>{{ entry.result.summary.firstCashShortfallYear ?? 'なし' }}</td></tr></tbody></table></div></section>
         <section class="content-card notice-card"><h3>シナリオの前提</h3><ul><li>標準は登録した基本条件をそのまま使用します。</li><li>楽観・悲観は標準条件に対する年率差を適用します。</li><li>投資利回りの差は現金・預金以外の資産に適用します。</li><li>これは条件を変えた比較試算であり、将来の結果を保証するものではありません。</li></ul></section>
       </template>
-      <footer class="page-footer">未来シミュレーター V1.12.0 · 入力データはこのブラウザ内に自動保存されます。</footer>
+      <footer class="page-footer">未来シミュレーター V1.12.1 · 入力データはこのブラウザ内に自動保存されます。</footer>
     </main>
   </div>
 </template>

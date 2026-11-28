@@ -69,7 +69,7 @@ th, td { padding: 12px 13px; border-bottom: 1px solid #eee8df; text-align: right
 th:first-child, td:first-child { text-align: left; }
 tbody tr:hover { background: #fcf9f4; }
 .positive { color: #587b58; }
-.negative { color: #b36b54; }
+.negative { color: #c43d3d; }
 .amount-cell { font-weight: 700; }
 .page-footer { padding: 10px 2px; color: #a0978c; font-size: 10px; text-align: right; }
 @media (max-width: 900px) {
