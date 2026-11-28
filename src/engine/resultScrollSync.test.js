@@ -4,12 +4,16 @@ import { readFileSync } from 'node:fs'
 
 const app = readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
 
-test('three result charts and annual table have linked scroll handlers', () => {
-  for (const name of ['resultAssetScroll', 'resultNisaScroll', 'resultCashflowScroll', 'resultTableScroll']) {
-    assert.ok(app.includes(`const ${name} = ref(null)`), `missing scroll ref: ${name}`)
+test('integrated projection combines asset, NISA, and cashflow datasets and links to annual table', () => {
+  assert.ok(app.includes('資産・NISA・年間収支の統合推移'))
+  for (const label of ['NISA評価額', '収入', '支出', '年間収支']) {
+    assert.ok(app.includes(`label: '${label}'`), `missing combined dataset: ${label}`)
   }
-  for (const source of ['assets', 'nisa', 'cashflow', 'table']) {
-    assert.ok(app.includes(`syncResultScroll('${source}')`), `missing scroll handler: ${source}`)
-  }
-  assert.ok(app.includes('scrollRatio'))
+  assert.ok(app.includes('金融資産・負債の積み上げ'))
+  assert.ok(app.includes('ref="resultAssetScroll"'))
+  assert.ok(app.includes('ref="resultTableScroll"'))
+  assert.ok(app.includes("syncResultScroll('assets')"))
+  assert.ok(app.includes("syncResultScroll('table')"))
+  assert.ok(!app.includes("ref=\"resultNisaScroll\""))
+  assert.ok(!app.includes("ref=\"resultCashflowScroll\""))
 })

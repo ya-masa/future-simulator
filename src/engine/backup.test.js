@@ -13,7 +13,7 @@ test('バックアップを書き出して元データを復元できる', () =>
   assert.equal(backup.format, BACKUP_FORMAT)
   assert.equal(backup.schemaVersion, BACKUP_SCHEMA_VERSION)
   assert.equal(backup.appVersion, APP_VERSION)
-  assert.equal(APP_VERSION, '1.14.0')
+  assert.equal(APP_VERSION, '1.14.1')
   assert.deepEqual(parseBackup(JSON.stringify(backup)), sample)
 })
 
