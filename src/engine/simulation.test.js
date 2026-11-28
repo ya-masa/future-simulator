@@ -451,6 +451,25 @@ test('現金不足累計は各月に新たに増えた不足額を合算し、�
   assert.equal(result.summary.totalCashShortfall, 2400000)
 })
 
+
+test('前年度の現金不足は翌年の現金余剰で返済され、未解消額と現金残高が減る', () => {
+  const input = structuredClone(baseInput)
+  input.household = { startDate: '2026-01-01', endAge: 27 }
+  input.persons = [{ personId: 'p1', name: '本人', birthDate: '2000-01-01' }]
+  input.incomeRecords = [{ amount: 150000, frequency: 'monthly', startDate: '2027-01-01', endDate: '2027-12-31' }]
+  input.expenseRecords = [{ amount: 100000, frequency: 'monthly', startDate: '2026-01-01', endDate: '2026-12-31', annualInflationRate: 0 }]
+  input.assets = [{ assetId: 'cash-shortfall-test', assetType: 'cash', balance: 0, annualReturn: 0 }]
+  input.futureEvents = []
+  input.conditions = { calculationEndAge: 27, defaultInflationRate: 0, withdrawal: { enabled: true, minimumCashReserve: 0, refillStartBalance: 0, refillTargetBalance: 0 } }
+  const result = runSimulation(input)
+  assert.equal(result.annualResults[0].cashShortfall, 1200000)
+  assert.equal(result.annualResults[0].cumulativeCashShortfall, 1200000)
+  assert.equal(result.annualResults[1].cumulativeCashShortfall, 0)
+  assert.equal(result.summary.totalCashShortfall, 0)
+  assert.equal(result.summary.endCashShortfall, 0)
+  assert.equal(result.summary.endCashBalance, 600000)
+})
+
 test('通常支出で現金が不足しても預貯金から補充し、現金残高をマイナスにしない', () => {
   const input = structuredClone(baseInput)
   input.household = { startDate: '2026-01-01', endAge: 26 }

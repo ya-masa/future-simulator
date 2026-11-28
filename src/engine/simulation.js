@@ -178,6 +178,8 @@ export function runSimulation(input) {
   let yearDebtInterest = 0
   let yearWithdrawals = []
   let yearCashShortfall = 0
+  let yearCashShortfallOutstanding = 0
+  let outstandingCashShortfall = 0
   let yearOpeningAssets = sumFinancialAssets(cashAssets, investmentAssets)
   let yearOpeningAssetDetails = snapshotAssetDetails(cashAssets, investmentAssets)
   let yearOpeningAssetCategories = summarizeOpeningAssetDetails(yearOpeningAssetDetails)
@@ -192,7 +194,7 @@ export function runSimulation(input) {
         year: currentYear, input, income: yearIncome, salaryIncome: yearSalaryIncome, bonusIncome: yearBonusIncome, otherIncome: yearOtherIncome, financialAssetIncome: yearFinancialAssetIncome, pensionIncome: yearPensionIncome, retirementBenefit: yearRetirementBenefit, tax: yearTax, incomeTax: yearIncomeTax, residentTax: yearResidentTax, socialInsurance: yearSocialInsurance, expense: yearExpense,
         investmentGain: yearInvestmentGain, contribution: yearContribution,
         debtPayment: yearDebtPayment, debtPrincipal: yearDebtPrincipal, debtInterest: yearDebtInterest,
-        withdrawals: yearWithdrawals, cashShortfall: yearCashShortfall,
+        withdrawals: yearWithdrawals, cashShortfall: yearCashShortfall, cashShortfallOutstanding: yearCashShortfallOutstanding,
         openingAssets: yearOpeningAssets, closingAssets: sumFinancialAssets(cashAssets, investmentAssets), assetCategories: summarizeAssetCategories(cashAssets, investmentAssets),
         openingAssetDetails: yearOpeningAssetDetails, openingAssetCategories: yearOpeningAssetCategories,
         openingLiabilities: yearOpeningLiabilities, closingLiabilities: sumLiabilityBalances(liabilities),
@@ -218,6 +220,7 @@ export function runSimulation(input) {
       yearDebtInterest = 0
       yearWithdrawals = []
       yearCashShortfall = 0
+      yearCashShortfallOutstanding = 0
       yearOpeningAssets = sumFinancialAssets(cashAssets, investmentAssets)
       yearOpeningAssetDetails = snapshotAssetDetails(cashAssets, investmentAssets)
       yearOpeningAssetCategories = summarizeOpeningAssetDetails(yearOpeningAssetDetails)
@@ -616,6 +619,19 @@ export function runSimulation(input) {
     // 年間の現金不足は、その年に新たに発生した不足額の合計。最大不足残高ではない。
     yearCashShortfall += monthlyCashShortfall + eventFundingShortfall + cashflowFundingShortfall + contractFundingShortfall
 
+    // 年末に未解消不足へ当年の新規不足を加え、当年の実質現金余剰で返済する。
+    // 返済額は現金・預貯金から実際に差し引き、資産残高との二重計上を防ぐ。
+    if (date.getMonth() === 11 || offset === totalMonths - 1) {
+      outstandingCashShortfall += Math.max(0, yearCashShortfall)
+      const annualNetCashflow = yearIncome - yearExpense - yearDebtPrincipal - yearTax - yearSocialInsurance
+      const annualCashSurplus = Math.max(0, annualNetCashflow - yearContribution)
+      const repaymentRequest = Math.min(outstandingCashShortfall, annualCashSurplus)
+      const unpaidRepayment = debitCashPool(cashAssets, repaymentRequest)
+      const actualRepayment = repaymentRequest - unpaidRepayment
+      outstandingCashShortfall = Math.max(0, outstandingCashShortfall - actualRepayment)
+      yearCashShortfallOutstanding = round(outstandingCashShortfall)
+    }
+
     // 年末時点で全員が人物別の計算終了年齢に達していれば、世帯の試算を終了する。
     if (date.getMonth() === 11 && (input.persons || []).length > 0) {
       const allPersonsReachedCutoff = input.persons.every((person) => {
@@ -630,23 +646,20 @@ export function runSimulation(input) {
     year: currentYear, input, income: yearIncome, salaryIncome: yearSalaryIncome, bonusIncome: yearBonusIncome, otherIncome: yearOtherIncome, financialAssetIncome: yearFinancialAssetIncome, pensionIncome: yearPensionIncome, retirementBenefit: yearRetirementBenefit, tax: yearTax, incomeTax: yearIncomeTax, residentTax: yearResidentTax, socialInsurance: yearSocialInsurance, expense: yearExpense,
     investmentGain: yearInvestmentGain, contribution: yearContribution,
     debtPayment: yearDebtPayment, debtPrincipal: yearDebtPrincipal, debtInterest: yearDebtInterest,
-    withdrawals: yearWithdrawals, cashShortfall: yearCashShortfall,
+    withdrawals: yearWithdrawals, cashShortfall: yearCashShortfall, cashShortfallOutstanding: yearCashShortfallOutstanding,
     openingAssets: yearOpeningAssets, closingAssets: sumFinancialAssets(cashAssets, investmentAssets), assetCategories: summarizeAssetCategories(cashAssets, investmentAssets),
     openingAssetDetails: yearOpeningAssetDetails, openingAssetCategories: yearOpeningAssetCategories,
     openingLiabilities: yearOpeningLiabilities, closingLiabilities: sumLiabilityBalances(liabilities),
     date: new Date(currentYear, 11, 31),
   }))
 
-  // 年ごとの新規不足額と、開始年からの累計不足額を別フィールドで保持する。
-  // UI・グラフ・シナリオ比較は同じ cumulativeCashShortfall を参照する。
-  let cumulativeCashShortfall = 0
+  // 年次の表示値は新規不足の単純累計ではなく、余剰返済後の未解消不足残高。
   for (const row of annualResults) {
-    cumulativeCashShortfall += Math.max(0, Number(row.cashShortfall || 0))
-    row.cumulativeCashShortfall = round(cumulativeCashShortfall)
+    row.cumulativeCashShortfall = round(Math.max(0, Number(row.cashShortfallOutstanding || 0)))
   }
 
   const endFinancialAssets = sumFinancialAssets(cashAssets, investmentAssets)
-  const endCashShortfall = Math.max(0, -sumBalances(cashAssets))
+  const endCashShortfall = round(Math.max(0, outstandingCashShortfall))
   const endLiabilities = sumLiabilityBalances(liabilities)
   const totalWithdrawals = annualResults.reduce((sum, row) => sum + row.withdrawalAmount, 0)
   const firstCashShortfall = annualResults.find((row) => row.cashShortfall > 0)
@@ -660,8 +673,8 @@ export function runSimulation(input) {
       endLiabilities,
       endNetWorth: endFinancialAssets - endLiabilities,
       totalWithdrawals: round(totalWithdrawals),
-      // 各年の新規不足額を合算。過年度の不足残高を重複計上しない。
-      totalCashShortfall: round(annualResults.at(-1)?.cumulativeCashShortfall || 0),
+      // 最終時点で現金余剰による返済後に残っている不足額。
+      totalCashShortfall: round(outstandingCashShortfall),
       firstCashShortfallYear: firstCashShortfall?.year ?? null,
       endCashBalance: round(Math.max(0, sumBalances(cashAssets))),
       endCashShortfall: round(endCashShortfall),
@@ -716,7 +729,7 @@ function calculatePersonBenefits(persons, date) {
   return { pensionIncome, retirementBenefit }
 }
 
-function buildAnnualResult({ year, input, income, salaryIncome = 0, bonusIncome = 0, otherIncome = 0, financialAssetIncome = 0, pensionIncome = 0, retirementBenefit = 0, tax = 0, incomeTax = 0, residentTax = 0, socialInsurance = 0, expense, investmentGain, contribution, debtPayment, debtPrincipal, debtInterest, withdrawals = [], cashShortfall = 0, openingAssets, closingAssets, assetCategories = null, openingAssetDetails = [], openingAssetCategories = null, openingLiabilities, closingLiabilities, date }) {
+function buildAnnualResult({ year, input, income, salaryIncome = 0, bonusIncome = 0, otherIncome = 0, financialAssetIncome = 0, pensionIncome = 0, retirementBenefit = 0, tax = 0, incomeTax = 0, residentTax = 0, socialInsurance = 0, expense, investmentGain, contribution, debtPayment, debtPrincipal, debtInterest, withdrawals = [], cashShortfall = 0, cashShortfallOutstanding = 0, openingAssets, closingAssets, assetCategories = null, openingAssetDetails = [], openingAssetCategories = null, openingLiabilities, closingLiabilities, date }) {
   const ages = (input.persons || []).map((person) => ({
     personId: person.personId,
     name: person.name,
@@ -752,6 +765,7 @@ function buildAnnualResult({ year, input, income, salaryIncome = 0, bonusIncome 
       return map
     }, {})).map((item) => ({ ...item, amount: round(item.amount) })),
     cashShortfall: round(cashShortfall),
+    cashShortfallOutstanding: round(cashShortfallOutstanding),
     openingFinancialAssets: round(openingAssets),
     closingFinancialAssets: round(closingAssets),
     assetCategories: assetCategories || { cash: 0, deposit: 0, nisa: 0, taxable: 0, bond: 0, other: 0 },
