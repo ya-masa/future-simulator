@@ -387,6 +387,45 @@ test('将来購入イベントは購入元から資金を移し、NISA資産区�
   assert.equal(result.annualResults[0].closingFinancialAssets, 1000000)
 })
 
+test('イベントで購入した定期預金は満期受取額を受取口座へ振り替える', () => {
+  const input = structuredClone(baseInput)
+  input.incomeRecords = []
+  input.expenseRecords = []
+  input.conditions.calculationEndAge = 27
+  input.assets = [{ assetId: 'cash-td', assetType: 'cash', name: '現金', balance: 1000000, annualReturn: 0 }]
+  input.futureEvents = [{
+    eventId: 'event-term-deposit', type: 'assetPurchase', eventDate: '2026-01-01',
+    name: '将来の定期預金', purchaseAmount: 200000, sourceAssetId: 'cash-td',
+    purchaseAssetType: 'termDeposit', contractDate: '2026-01-01', maturityDate: '2027-01-01',
+    maturityPayoutMode: 'amount', maturityPayoutAmount: 250000,
+    interestMethod: 'compound', compoundingFrequency: 12,
+  }]
+  const result = runSimulation(input)
+  assert.ok(result.annualResults[0].assetCategories.deposit > 200000)
+  assert.equal(result.annualResults[1].assetCategories.deposit, 0)
+  assert.equal(result.annualResults[1].assetCategories.cash, 1050000)
+})
+
+test('イベントで登録した積立払の貯蓄保険は保険料を引き落とし、満期に受け取る', () => {
+  const input = structuredClone(baseInput)
+  input.incomeRecords = []
+  input.expenseRecords = []
+  input.conditions.calculationEndAge = 27
+  input.assets = [{ assetId: 'cash-insurance', assetType: 'cash', name: '現金', balance: 1000000, annualReturn: 0 }]
+  input.futureEvents = [{
+    eventId: 'event-savings-insurance', type: 'assetPurchase', eventDate: '2026-01-01',
+    name: '積立貯蓄保険', sourceAssetId: 'cash-insurance', purchaseAssetType: 'savingsInsurance',
+    premiumMode: 'recurring', premiumAmount: 10000, premiumFrequency: 'monthly',
+    contributionStartDate: '2026-01-01', contributionEndDate: '2027-01-01',
+    maturityDate: '2027-01-01', maturityPayoutMode: 'amount', maturityPayoutAmount: 140000,
+  }]
+  const result = runSimulation(input)
+  assert.equal(result.annualResults[0].assetCategories.cash, 880000)
+  assert.ok(result.annualResults[0].assetCategories.deposit >= 120000)
+  assert.equal(result.annualResults[1].assetCategories.deposit, 0)
+  assert.equal(result.annualResults[1].assetCategories.cash, 1010000)
+})
+
 test('将来購入した債券の利息を現金に加え、満期に元本を返す', () => {
   const input = structuredClone(baseInput)
   input.incomeRecords = []
