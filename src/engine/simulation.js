@@ -619,16 +619,21 @@ export function runSimulation(input) {
     // 年間の現金不足は、その年に新たに発生した不足額の合計。最大不足残高ではない。
     yearCashShortfall += monthlyCashShortfall + eventFundingShortfall + cashflowFundingShortfall + contractFundingShortfall
 
-    // 年末に未解消不足へ当年の新規不足を加え、当年の実質現金余剰で返済する。
-    // 返済額は現金・預貯金から実際に差し引き、資産残高との二重計上を防ぐ。
+    // 年末に当年の新規不足を未解消不足へ加算し、利用可能な資産から優先順に充当する。
+    // 年間収支だけを見ていた旧処理では、預貯金や換金可能な投資資産が残っていても
+    // 年間収支が赤字なら不足が減らず、資産残高と未解消不足が乖離していた。
+    // 現金→預貯金→解約可能な投資資産の共通補充処理を使い、実際の残高も減らす。
     if (date.getMonth() === 11 || offset === totalMonths - 1) {
       outstandingCashShortfall += Math.max(0, yearCashShortfall)
-      const annualNetCashflow = yearIncome - yearExpense - yearDebtPrincipal - yearTax - yearSocialInsurance
-      const annualCashSurplus = Math.max(0, annualNetCashflow - yearContribution)
-      const repaymentRequest = Math.min(outstandingCashShortfall, annualCashSurplus)
-      const unpaidRepayment = debitCashPool(cashAssets, repaymentRequest)
-      const actualRepayment = repaymentRequest - unpaidRepayment
-      outstandingCashShortfall = Math.max(0, outstandingCashShortfall - actualRepayment)
+      if (input.conditions?.withdrawal?.enabled !== false && outstandingCashShortfall > 0.000001) {
+        const repayment = applyAutomaticFunding(cashAssets, investmentAssets, outstandingCashShortfall, date)
+        cashAssets = repayment.cashAssets
+        investmentAssets = repayment.investmentAssets
+        outstandingCashShortfall = Math.max(0, repayment.unfundedAmount)
+        for (const item of repayment.details) {
+          yearWithdrawals.push({ assetId: item.assetId, name: item.name, amount: item.amount, assetType: item.assetType, reason: 'cashShortfallSettlement' })
+        }
+      }
       yearCashShortfallOutstanding = round(outstandingCashShortfall)
     }
 

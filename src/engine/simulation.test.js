@@ -920,5 +920,7 @@ test('V1.11.0 契約元本を全額調達できない場合は資産を作らず
   const result = runSimulation(input)
   assert.equal(result.endingAssets.some((asset) => asset.assetId === 'unfunded-contract'), false)
   assert.ok(result.annualResults[0].cashShortfall >= 80000)
-  assert.equal(result.endingAssets.find((asset) => asset.assetId === 'cash-insufficient-contract')?.balance, 20000)
+  // The remaining 20,000 yen is applied to the unresolved funding gap at year-end.
+  assert.equal(result.endingAssets.find((asset) => asset.assetId === 'cash-insufficient-contract')?.balance, 0)
+  assert.equal(result.summary.endCashShortfall, 60000)
 })

@@ -1845,7 +1845,7 @@ initializeSavedPlanLibrary(householdData.value)
           <div><h2>アプリの設定</h2><p>表示や動作に関する設定を、今後の段階で順次追加します。</p></div>
         </section>
         <section class="content-card editor-card">
-          <div class="section-heading"><div><p class="eyebrow">CURRENT SETTINGS</p><h3>現在の設定・保存方式</h3></div><span class="status-pill">V1.11.1</span></div>
+          <div class="section-heading"><div><p class="eyebrow">CURRENT SETTINGS</p><h3>現在の設定・保存方式</h3></div><span class="status-pill">V1.11.2</span></div>
           <div class="year-detail-list">
             <div><span>データ保存</span><strong>IndexedDB（主保存）</strong></div>
             <div><span>互換保存</span><strong>localStorage（ミラー）</strong></div>
@@ -1853,10 +1853,10 @@ initializeSavedPlanLibrary(householdData.value)
             <div><span>自動バックアップ</span><strong>日次・直近7日分</strong></div>
             <div><span>クラウド連携</span><strong>{{ cloudAutoSyncEnabled ? '自動送信ON' : '手動' }}</strong></div>
             <div><span>試算方式</span><strong>月次計算・年次集計</strong></div>
-            <div><span>アプリバージョン</span><strong>V1.11.1</strong></div>
+            <div><span>アプリバージョン</span><strong>V1.11.2</strong></div>
           </div>
           <p class="helper-note">入力データはIndexedDBへ自動保存し、保存日時を記録します。データを変更した日の最初の保存時に日次バックアップを作成し、直近7日分を保持します。自動クラウド同期はローカルからクラウドへの送信に対応します。複数端末間の自動ダウンロード・自動競合解決は未実装です。</p>
-          <section class="content-card notice-card release-history"><div class="section-heading"><div><p class="eyebrow">RELEASE HISTORY & ROADMAP</p><h3>改修履歴・予定</h3></div></div><ul><li><strong>V1.9.1・修正</strong> — 定期預金・貯蓄保険の現在残高入力を削除し、契約開始日から評価額を算出。購入元/購入先の資産区分と満期受取口座を設定できます。</li><li><strong>V1.9.0・実装</strong> — 定期預金・貯蓄保険の資産モデル。契約日・元本・満期日・満期受取額または年率・単利/複利・複利頻度・途中解約条件、一時払/積立払を登録できます。</li><li><strong>V1.8.18・実装</strong> — 人物ごとの計算終了年齢と世帯終了条件。年齢欄は上限を超えると空白表示。</li><li><strong>V1.10.0・実装</strong> — 定期預金・貯蓄保険の満期自動振替、受取口座への入金、契約満期イベント連携。</li><li><strong>V1.11.1・修正</strong> — 前年度までの未解消現金不足を、当年の現金余剰から返済。返済額は現金・預貯金残高から差し引き、未解消不足と資産残高を一致させます。</li><li><strong>V1.11.0・実装</strong> — 資金不足時は現金→預貯金→換金可能な投資資産の順に補充。契約資産は途中解約可否・ロック期間・返戻金を確認し、満期月の二重使用を防ぎます。</li><li><strong>V1.12.0・予定</strong> — 比較結果のマイナス表示。</li><li><strong>V1.13.0・予定</strong> — バックアップ方式の改修。</li><li><strong>V1.14.0・予定</strong> — 詳細結果の3つのグラフを統合。</li></ul><p class="helper-note">機能改修は2つ目の数字を上げ、修正・やり直しは3つ目の数字を上げます。</p></section>
+          <section class="content-card notice-card release-history"><div class="section-heading"><div><p class="eyebrow">RELEASE HISTORY & ROADMAP</p><h3>改修履歴・予定</h3></div></div><ul><li><strong>V1.9.1・修正</strong> — 定期預金・貯蓄保険の現在残高入力を削除し、契約開始日から評価額を算出。購入元/購入先の資産区分と満期受取口座を設定できます。</li><li><strong>V1.9.0・実装</strong> — 定期預金・貯蓄保険の資産モデル。契約日・元本・満期日・満期受取額または年率・単利/複利・複利頻度・途中解約条件、一時払/積立払を登録できます。</li><li><strong>V1.8.18・実装</strong> — 人物ごとの計算終了年齢と世帯終了条件。年齢欄は上限を超えると空白表示。</li><li><strong>V1.10.0・実装</strong> — 定期預金・貯蓄保険の満期自動振替、受取口座への入金、契約満期イベント連携。</li><li><strong>V1.11.2・修正</strong> — 年間収支だけで返済額を判定する不具合を修正。未解消不足を現金→預貯金→換金可能な投資資産から実際に充当し、資産残高と不足額を整合させます。</li><li><strong>V1.11.1・修正（旧）</strong> — 年間収支の黒字を使って不足を返済する処理を追加しましたが、資産残高との精算が不十分でした。</li><li><strong>V1.11.0・実装</strong> — 資金不足時は現金→預貯金→換金可能な投資資産の順に補充。契約資産は途中解約可否・ロック期間・返戻金を確認し、満期月の二重使用を防ぎます。</li><li><strong>V1.12.0・予定</strong> — 比較結果のマイナス表示。</li><li><strong>V1.13.0・予定</strong> — バックアップ方式の改修。</li><li><strong>V1.14.0・予定</strong> — 詳細結果の3つのグラフを統合。</li></ul><p class="helper-note">機能改修は2つ目の数字を上げ、修正・やり直しは3つ目の数字を上げます。</p></section>
           <button class="secondary-button" @click="settingsSection = 'data'">データ管理を開く</button>
         </section>
       </template>
@@ -1935,7 +1935,7 @@ initializeSavedPlanLibrary(householdData.value)
         <section class="content-card table-card"><div class="section-heading"><div><p class="eyebrow">SCENARIO SUMMARY</p><h3>比較一覧</h3></div></div><div class="table-scroll"><table><thead><tr><th>シナリオ</th><th>最終金融資産</th><th>最終負債</th><th>最終純資産</th><th>累計取り崩し</th><th>未解消現金不足</th><th>初回現金不足年</th></tr></thead><tbody><tr v-for="entry in scenarioResults" :key="entry.scenario.scenarioId"><td>{{ entry.scenario.name }}</td><td>{{ formatYen(entry.result.summary.endFinancialAssets) }}</td><td>{{ formatYen(entry.result.summary.endLiabilities) }}</td><td>{{ formatYen(entry.result.summary.endNetWorth) }}</td><td>{{ formatYen(entry.result.summary.totalWithdrawals) }}</td><td>{{ formatYen(entry.result.summary.totalCashShortfall) }}</td><td>{{ entry.result.summary.firstCashShortfallYear ?? 'なし' }}</td></tr></tbody></table></div></section>
         <section class="content-card notice-card"><h3>シナリオの前提</h3><ul><li>標準は登録した基本条件をそのまま使用します。</li><li>楽観・悲観は標準条件に対する年率差を適用します。</li><li>投資利回りの差は現金・預金以外の資産に適用します。</li><li>これは条件を変えた比較試算であり、将来の結果を保証するものではありません。</li></ul></section>
       </template>
-      <footer class="page-footer">未来シミュレーター V1.11.1 · 入力データはこのブラウザ内に自動保存されます。</footer>
+      <footer class="page-footer">未来シミュレーター V1.11.2 · 入力データはこのブラウザ内に自動保存されます。</footer>
     </main>
   </div>
 </template>

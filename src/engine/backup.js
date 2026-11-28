@@ -1,6 +1,6 @@
 export const BACKUP_FORMAT = 'future-simulator-backup'
 export const BACKUP_SCHEMA_VERSION = 1
-export const APP_VERSION = '1.11.1'
+export const APP_VERSION = '1.11.2'
 
 /** JSON互換データとしてバックアップ用の封筒を作成する。 */
 export function createBackup(data, exportedAt = new Date().toISOString()) {
