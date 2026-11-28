@@ -36,7 +36,7 @@ function worksheet(name, rows) {
   return `<Worksheet ss:Name="${escapeXml(name)}"><Table>${xmlRows}</Table><WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel"><FreezePanes/><FrozenNoSplit/><SplitHorizontal>1</SplitHorizontal><TopRowBottomPane>1</TopRowBottomPane><ActivePane>2</ActivePane></WorksheetOptions></Worksheet>`
 }
 
-export function createExcelXml({ household, simulationResult, scenarioResults = [] }) {
+export function createExcelXml({ household, simulationResult, scenarioResults = [], saveVersion = '' }) {
   if (!household || typeof household !== 'object') throw new Error('出力する世帯データがありません。')
   const annualRows = (simulationResult?.annualResults || []).map((row) => ({
     年度: row.year,
@@ -66,6 +66,7 @@ export function createExcelXml({ household, simulationResult, scenarioResults = 
     初回現金不足年: entry.result?.summary?.firstCashShortfallYear ?? 'なし',
   }))
   const sheets = [
+    ['保存情報', [['項目', '値'], ['保存バージョン', saveVersion], ['保存日時', new Date().toISOString()]]],
     ['世帯情報', objectRows(household.household)],
     ['人物', normalizeRows(household.persons)],
     ['収入', normalizeRows(household.incomeRecords)],
