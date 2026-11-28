@@ -13,7 +13,7 @@ import { createBackup, parseBackup } from './engine/backup.js'
 import { downloadExcelWorkbook } from './engine/excelExport.js'
 import { parseExcelWorkbook } from './engine/excelImport.js'
 import { sendGasRequest, validateCloudConfig } from './engine/cloudStorage.js'
-import { saveLocalStore, getLatestLocalBackup } from './engine/localStore.js'
+import { saveLocalStore, getLatestLocalBackup, createLocalBackup, getLocalBackupHistory } from './engine/localStore.js'
 
 const assetSegmentLabels = {
   id: 'assetSegmentLabels',
@@ -164,6 +164,8 @@ const backupInput = ref(null)
 const excelImportInput = ref(null)
 const backupMessage = ref('')
 const backupError = ref('')
+const backupHistory = ref([])
+const backupHistoryLoading = ref(false)
 const excelMessage = ref('')
 const excelError = ref('')
 const excelImportMessage = ref('')
@@ -189,6 +191,7 @@ const lastSavedAt = ref(window.__FUTURE_SIMULATOR_SAVED_AT__ || null)
 const lastBackupAt = ref(window.__FUTURE_SIMULATOR_LAST_BACKUP_AT__ || null)
 const saveStatus = ref('saved')
 const latestAutoBackupAt = ref(lastBackupAt.value)
+watch(settingsSection, (section) => { if (section === 'data') refreshBackupHistory() })
 const simulationError = ref('')
 const simulationResult = ref(runSimulation(householdData.value))
 const scenarioResults = ref(runScenarioComparisons(householdData.value, householdData.value.scenarios))
@@ -209,8 +212,10 @@ watch(householdData, (value) => {
   saveLocalStore(STORAGE_KEY, value)
     .then((result) => {
       lastSavedAt.value = result.savedAt
+      const previousBackupAt = latestAutoBackupAt.value
       lastBackupAt.value = result.lastBackupAt
       latestAutoBackupAt.value = result.lastBackupAt
+      if (result.lastBackupAt && result.lastBackupAt !== previousBackupAt) refreshBackupHistory()
       saveStatus.value = 'saved'
       saveMessage.value = `保存済み · ${formatDateTime(result.savedAt)}`
     })
@@ -860,6 +865,51 @@ function formatDateTime(value) {
   }).format(date)
 }
 
+async function refreshBackupHistory() {
+  backupHistoryLoading.value = true
+  try {
+    backupHistory.value = await getLocalBackupHistory(STORAGE_KEY)
+  } catch (error) {
+    backupError.value = error instanceof Error ? error.message : 'バックアップ履歴を読み込めませんでした。'
+  } finally {
+    backupHistoryLoading.value = false
+  }
+}
+
+async function createManualBackup() {
+  backupError.value = ''
+  backupMessage.value = ''
+  try {
+    const saved = await createLocalBackup(STORAGE_KEY, householdData.value, '手動バックアップ')
+    await refreshBackupHistory()
+    backupMessage.value = `手動バックアップを保存しました（${formatDateTime(saved.savedAt)}）。`
+  } catch (error) {
+    backupError.value = error instanceof Error ? error.message : '手動バックアップの保存に失敗しました。'
+  }
+}
+
+async function applyLocalBackupData(data, sourceLabel, savedAt) {
+  await createLocalBackup(STORAGE_KEY, householdData.value, '復元前の安全バックアップ')
+  const restored = normalizeLegacyIncomeExpenseSetting(structuredClone(data))
+  normalizePensionData(restored)
+  const nextResult = runSimulation(restored)
+  const nextScenarios = Array.isArray(restored.scenarios) && restored.scenarios.length
+    ? restored.scenarios
+    : structuredClone(defaultScenarios)
+  const nextScenarioResults = runScenarioComparisons(restored, nextScenarios)
+  restored.scenarios = nextScenarios
+  initializeSavedPlanLibrary(restored)
+  householdData.value = restored
+  selectedPlanIds.value = [restored.activeSavedPlanId]
+  simulationResult.value = nextResult
+  scenarioResults.value = nextScenarioResults
+  selectedResultYear.value = nextResult.annualResults[0]?.year ?? new Date().getFullYear()
+  simulationError.value = ''
+  backupMessage.value = `${sourceLabel}（${formatDateTime(savedAt)}）から復元しました。復元前のデータも手動バックアップに保存しました。`
+  activeTab.value = 'overview'
+  await refreshBackupHistory()
+}
+
 async function restoreLatestAutoBackup() {
   backupError.value = ''
   backupMessage.value = ''
@@ -869,25 +919,42 @@ async function restoreLatestAutoBackup() {
       backupError.value = '自動バックアップはまだありません。'
       return
     }
-    if (!window.confirm(`自動バックアップ（${formatDateTime(latest.savedAt)}）から復元します。現在のデータは置き換わります。続けますか？`)) return
-    const restored = normalizeLegacyIncomeExpenseSetting(structuredClone(latest.data))
-    normalizePensionData(restored)
-    const nextResult = runSimulation(restored)
-    const nextScenarios = Array.isArray(restored.scenarios) && restored.scenarios.length
-      ? restored.scenarios
-      : structuredClone(defaultScenarios)
-    const nextScenarioResults = runScenarioComparisons(restored, nextScenarios)
-    restored.scenarios = nextScenarios
-    initializeSavedPlanLibrary(restored)
-    householdData.value = restored
-    selectedPlanIds.value = [restored.activeSavedPlanId]
-    simulationResult.value = nextResult
-    scenarioResults.value = nextScenarioResults
-    selectedResultYear.value = nextResult.annualResults[0]?.year ?? new Date().getFullYear()
-    backupMessage.value = `自動バックアップ（${formatDateTime(latest.savedAt)}）から復元しました。`
-    activeTab.value = 'overview'
+    if (!window.confirm(`自動バックアップ（${formatDateTime(latest.savedAt)}）から復元します。現在のデータは復元前バックアップに保存してから置き換わります。続けますか？`)) return
+    await applyLocalBackupData(latest.data, '自動バックアップ', latest.savedAt)
   } catch (error) {
     backupError.value = error instanceof Error ? error.message : '自動バックアップの復元に失敗しました。'
+  }
+}
+
+async function restoreSelectedLocalBackup(backup) {
+  backupError.value = ''
+  backupMessage.value = ''
+  const typeLabel = backup.backupType === 'manual' ? '手動バックアップ' : '自動バックアップ'
+  if (!window.confirm(`${typeLabel}（${formatDateTime(backup.savedAt)}）から復元します。現在のデータは復元前バックアップに保存してから置き換わります。続けますか？`)) return
+  try {
+    await applyLocalBackupData(backup.data, typeLabel, backup.savedAt)
+  } catch (error) {
+    backupError.value = error instanceof Error ? error.message : 'バックアップ履歴からの復元に失敗しました。'
+  }
+}
+
+function downloadLocalBackup(backup) {
+  try {
+    const file = createBackup(backup.data, backup.savedAt || new Date().toISOString())
+    const blob = new Blob([JSON.stringify(file, null, 2)], { type: 'application/json;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    const date = String(backup.savedAt || new Date().toISOString()).slice(0, 10)
+    link.href = url
+    link.download = `future-simulator-${backup.backupType === 'manual' ? 'manual' : 'auto'}-backup-${date}.json`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+    backupMessage.value = '選択したバックアップを書き出しました。'
+    backupError.value = ''
+  } catch (error) {
+    backupError.value = error instanceof Error ? error.message : 'バックアップの書き出しに失敗しました。'
   }
 }
 
@@ -1002,6 +1069,7 @@ async function restoreBackup(event) {
     restored.scenarios = nextScenarios
     initializeSavedPlanLibrary(restored)
 
+    await createLocalBackup(STORAGE_KEY, householdData.value, '復元前の安全バックアップ')
     householdData.value = restored
     selectedPlanIds.value = [restored.activeSavedPlanId]
     if (!Array.isArray(householdData.value.scenarios) || householdData.value.scenarios.length === 0) {
@@ -1721,6 +1789,29 @@ initializeSavedPlanLibrary(householdData.value)
           <button class="secondary-button" @click="restoreLatestAutoBackup">最新の自動バックアップから復元</button>
         </section>
         <section class="content-card editor-card backup-card">
+          <div class="section-heading"><div><p class="eyebrow">BACKUP HISTORY</p><h3>バックアップ履歴</h3></div><span class="status-pill">自動・手動</span></div>
+          <p class="helper-note">手動バックアップは必要なタイミングで保存でき、最新20件を保持します。日次自動バックアップの7日保持とは別管理です。復元時は現在のデータを「復元前の安全バックアップ」として先に保存します。履歴はこのブラウザ内に保存されます。</p>
+          <div class="button-row">
+            <button class="primary-button" @click="createManualBackup">今すぐ手動バックアップを保存</button>
+            <button class="secondary-button" :disabled="backupHistoryLoading" @click="refreshBackupHistory">{{ backupHistoryLoading ? '読み込み中…' : '履歴を更新' }}</button>
+          </div>
+          <p v-if="backupHistoryLoading" class="helper-note">バックアップ履歴を読み込んでいます。</p>
+          <p v-else-if="!backupHistory.length" class="helper-note">バックアップ履歴はまだありません。</p>
+          <div v-else class="table-scroll">
+            <table>
+              <thead><tr><th>種類</th><th>保存日時</th><th>操作</th></tr></thead>
+              <tbody>
+                <tr v-for="backup in backupHistory.slice(0, 20)" :key="backup.key">
+                  <td>{{ backup.backupType === 'manual' ? (backup.label || '手動バックアップ') : '日次自動バックアップ' }}</td>
+                  <td>{{ formatDateTime(backup.savedAt) }}</td>
+                  <td><div class="button-row"><button class="small-button" @click="restoreSelectedLocalBackup(backup)">復元</button><button class="small-button" @click="downloadLocalBackup(backup)">JSON保存</button></div></td>
+                </tr>
+              </tbody>
+            </table>
+            <p class="helper-note">新しい順に最大20件を表示しています。全履歴数：{{ backupHistory.length }}件</p>
+          </div>
+        </section>
+        <section class="content-card editor-card backup-card">
           <div class="section-heading"><div><p class="eyebrow">EXCEL EXPORT</p><h3>Excel形式で書き出す</h3></div><span class="status-pill">複数シート</span></div>
           <p class="helper-note">世帯情報・人物・収入・支出・資産・負債・将来イベント・シナリオ・試算条件・年次試算結果・シナリオ比較を、1つのブックにまとめます。Excelで開いて編集・分析できます。</p>
           <button class="primary-button" @click="exportExcel">Excelブックをダウンロード</button>
@@ -1939,7 +2030,7 @@ initializeSavedPlanLibrary(householdData.value)
             <div><span>アプリバージョン</span><strong>V1.12.1</strong></div>
           </div>
           <p class="helper-note">入力データはIndexedDBへ自動保存し、保存日時を記録します。データを変更した日の最初の保存時に日次バックアップを作成し、直近7日分を保持します。自動クラウド同期はローカルからクラウドへの送信に対応します。複数端末間の自動ダウンロード・自動競合解決は未実装です。</p>
-          <section class="content-card notice-card release-history"><div class="section-heading"><div><p class="eyebrow">RELEASE HISTORY & ROADMAP</p><h3>改修履歴・予定</h3></div></div><ul><li><strong>V1.9.1・修正</strong> — 定期預金・貯蓄保険の現在残高入力を削除し、契約開始日から評価額を算出。購入元/購入先の資産区分と満期受取口座を設定できます。</li><li><strong>V1.9.0・実装</strong> — 定期預金・貯蓄保険の資産モデル。契約日・元本・満期日・満期受取額または年率・単利/複利・複利頻度・途中解約条件、一時払/積立払を登録できます。</li><li><strong>V1.8.18・実装</strong> — 人物ごとの計算終了年齢と世帯終了条件。年齢欄は上限を超えると空白表示。</li><li><strong>V1.10.0・実装</strong> — 定期預金・貯蓄保険の満期自動振替、受取口座への入金、契約満期イベント連携。</li><li><strong>V1.11.3・修正</strong> — 現金・預貯金ごとに「自動補充・不足精算に使用する」を設定できます。チェックを外した口座は自動補充と未解消不足の精算から除外します。</li><li><strong>V1.11.2・修正</strong> — 年間収支だけで返済額を判定する不具合を修正。未解消不足を現金→預貯金→換金可能な投資資産から実際に充当し、資産残高と不足額を整合させます。</li><li><strong>V1.11.1・修正（旧）</strong> — 年間収支の黒字を使って不足を返済する処理を追加しましたが、資産残高との精算が不十分でした。</li><li><strong>V1.11.0・実装</strong> — 資金不足時は現金→預貯金→換金可能な投資資産の順に補充。契約資産は途中解約可否・ロック期間・返戻金を確認し、満期月の二重使用を防ぎます。</li><li><strong>V1.12.1・修正</strong> — 比較のマイナス値を赤字表示。金融資産推移のツールチップに世帯全員の年齢を表示し、比較表は年と金額のみ。</li><li><strong>V1.12.0・実装</strong> — 比較表示は金融資産から未解消現金不足を差し引き、資産不足を負数として表示します。通常の試算残高は変更しません。</li><li><strong>V1.12.4・修正</strong> — V1.12.3で発生したApp.vueのscript構文エラーを修正。</li><li><strong>V1.12.3・修正</strong> — 保存プラン比較の「年次・金融資産推移」に、基準プランの世帯全員の年齢を再表示。</li><li><strong>V1.12.2・修正</strong> — 0円の太い基準線を保存プラン比較・シナリオ比較のグラフに設定。年間収支グラフには適用しません。</li><li><strong>V1.13.0・予定</strong> — バックアップ方式の改修。</li><li><strong>V1.14.0・予定</strong> — 詳細結果の3つのグラフを統合。</li></ul><p class="helper-note">機能改修は2つ目の数字を上げ、修正・やり直しは3つ目の数字を上げます。</p></section>
+          <section class="content-card notice-card release-history"><div class="section-heading"><div><p class="eyebrow">RELEASE HISTORY & ROADMAP</p><h3>改修履歴・予定</h3></div></div><ul><li><strong>V1.9.1・修正</strong> — 定期預金・貯蓄保険の現在残高入力を削除し、契約開始日から評価額を算出。購入元/購入先の資産区分と満期受取口座を設定できます。</li><li><strong>V1.9.0・実装</strong> — 定期預金・貯蓄保険の資産モデル。契約日・元本・満期日・満期受取額または年率・単利/複利・複利頻度・途中解約条件、一時払/積立払を登録できます。</li><li><strong>V1.8.18・実装</strong> — 人物ごとの計算終了年齢と世帯終了条件。年齢欄は上限を超えると空白表示。</li><li><strong>V1.10.0・実装</strong> — 定期預金・貯蓄保険の満期自動振替、受取口座への入金、契約満期イベント連携。</li><li><strong>V1.11.3・修正</strong> — 現金・預貯金ごとに「自動補充・不足精算に使用する」を設定できます。チェックを外した口座は自動補充と未解消不足の精算から除外します。</li><li><strong>V1.11.2・修正</strong> — 年間収支だけで返済額を判定する不具合を修正。未解消不足を現金→預貯金→換金可能な投資資産から実際に充当し、資産残高と不足額を整合させます。</li><li><strong>V1.11.1・修正（旧）</strong> — 年間収支の黒字を使って不足を返済する処理を追加しましたが、資産残高との精算が不十分でした。</li><li><strong>V1.11.0・実装</strong> — 資金不足時は現金→預貯金→換金可能な投資資産の順に補充。契約資産は途中解約可否・ロック期間・返戻金を確認し、満期月の二重使用を防ぎます。</li><li><strong>V1.12.1・修正</strong> — 比較のマイナス値を赤字表示。金融資産推移のツールチップに世帯全員の年齢を表示し、比較表は年と金額のみ。</li><li><strong>V1.12.0・実装</strong> — 比較表示は金融資産から未解消現金不足を差し引き、資産不足を負数として表示します。通常の試算残高は変更しません。</li><li><strong>V1.12.4・修正</strong> — V1.12.3で発生したApp.vueのscript構文エラーを修正。</li><li><strong>V1.12.3・修正</strong> — 保存プラン比較の「年次・金融資産推移」に、基準プランの世帯全員の年齢を再表示。</li><li><strong>V1.12.2・修正</strong> — 0円の太い基準線を保存プラン比較・シナリオ比較のグラフに設定。年間収支グラフには適用しません。</li><li><strong>V1.13.0・実装</strong> — バックアップ履歴を一覧化。手動バックアップを作成・履歴から復元・JSON書き出しでき、復元前の現状も安全バックアップとして保存します。日次自動バックアップ7日保持は手動バックアップと分離。</li><li><strong>V1.14.0・予定</strong> — 詳細結果の3つのグラフを統合。</li></ul><p class="helper-note">機能改修は2つ目の数字を上げ、修正・やり直しは3つ目の数字を上げます。</p></section>
           <button class="secondary-button" @click="settingsSection = 'data'">データ管理を開く</button>
         </section>
       </template>
@@ -2018,7 +2109,7 @@ initializeSavedPlanLibrary(householdData.value)
         <section class="content-card table-card"><div class="section-heading"><div><p class="eyebrow">SCENARIO SUMMARY</p><h3>比較一覧</h3></div></div><div class="table-scroll"><table><thead><tr><th>シナリオ</th><th>最終比較資産</th><th>最終負債</th><th>最終純資産</th><th>累計取り崩し</th><th>未解消現金不足</th><th>初回現金不足年</th></tr></thead><tbody><tr v-for="entry in scenarioResults" :key="entry.scenario.scenarioId"><td>{{ entry.scenario.name }}</td><td :class="getComparableFinancialAssets(entry.result.summary.endFinancialAssets, entry.result.summary.endCashShortfall ?? entry.result.summary.totalCashShortfall) < 0 ? 'negative' : ''">{{ formatYen(getComparableFinancialAssets(entry.result.summary.endFinancialAssets, entry.result.summary.endCashShortfall ?? entry.result.summary.totalCashShortfall)) }}</td><td :class="entry.result.summary.endLiabilities < 0 ? 'negative' : ''">{{ formatYen(entry.result.summary.endLiabilities) }}</td><td :class="entry.result.summary.endNetWorth < 0 ? 'negative' : ''">{{ formatYen(entry.result.summary.endNetWorth) }}</td><td :class="entry.result.summary.totalWithdrawals < 0 ? 'negative' : ''">{{ formatYen(entry.result.summary.totalWithdrawals) }}</td><td :class="entry.result.summary.totalCashShortfall < 0 ? 'negative' : ''">{{ formatYen(entry.result.summary.totalCashShortfall) }}</td><td>{{ entry.result.summary.firstCashShortfallYear ?? 'なし' }}</td></tr></tbody></table></div></section>
         <section class="content-card notice-card"><h3>シナリオの前提</h3><ul><li>標準は登録した基本条件をそのまま使用します。</li><li>楽観・悲観は標準条件に対する年率差を適用します。</li><li>投資利回りの差は現金・預金以外の資産に適用します。</li><li>これは条件を変えた比較試算であり、将来の結果を保証するものではありません。</li></ul></section>
       </template>
-      <footer class="page-footer">未来シミュレーター V1.12.4 · 入力データはこのブラウザ内に自動保存されます。</footer>
+      <footer class="page-footer">未来シミュレーター V1.13.0 · 入力データはこのブラウザ内に自動保存されます。</footer>
     </main>
   </div>
 </template>

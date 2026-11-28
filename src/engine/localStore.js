@@ -7,6 +7,9 @@ const DB_VERSION = 2
 const STORE_NAME = 'households'
 const BACKUP_STORE_NAME = 'dailyBackups'
 const BACKUP_RETENTION_DAYS = 7
+const AUTO_BACKUP_TYPE = 'automatic'
+const MANUAL_BACKUP_TYPE = 'manual'
+const MANUAL_BACKUP_RETENTION_COUNT = 20
 const writeQueues = new Map()
 
 function openDatabase() {
@@ -128,6 +131,8 @@ export function saveLocalStore(storageKey, data) {
           storageKey,
           data: snapshot,
           savedAt,
+          backupType: AUTO_BACKUP_TYPE,
+          label: '日次自動バックアップ',
         })
         lastBackupAt = savedAt
 
@@ -135,7 +140,7 @@ export function saveLocalStore(storageKey, data) {
         const transaction = db.transaction(BACKUP_STORE_NAME, 'readonly')
         const allBackups = await requestResult(transaction.objectStore(BACKUP_STORE_NAME).getAll())
         const ownBackups = allBackups
-          .filter((item) => item.storageKey === storageKey)
+          .filter((item) => item.storageKey === storageKey && (item.backupType || AUTO_BACKUP_TYPE) === AUTO_BACKUP_TYPE)
           .sort((a, b) => String(b.savedAt).localeCompare(String(a.savedAt)))
         for (const oldBackup of ownBackups.slice(BACKUP_RETENTION_DAYS)) {
           const deleteTransaction = db.transaction(BACKUP_STORE_NAME, 'readwrite')
@@ -169,9 +174,66 @@ export async function getLatestLocalBackup(storageKey) {
     const transaction = db.transaction(BACKUP_STORE_NAME, 'readonly')
     const allBackups = await requestResult(transaction.objectStore(BACKUP_STORE_NAME).getAll())
     const latest = allBackups
-      .filter((item) => item.storageKey === storageKey && item.data)
+      .filter((item) => item.storageKey === storageKey && item.data && (item.backupType || AUTO_BACKUP_TYPE) === AUTO_BACKUP_TYPE)
       .sort((a, b) => String(b.savedAt).localeCompare(String(a.savedAt)))[0]
     return latest ? { data: latest.data, savedAt: latest.savedAt } : null
+  } finally {
+    db.close()
+  }
+}
+
+
+/** 現在の状態を手動バックアップとして保存する。自動バックアップの7日保持には含めない。 */
+export async function createLocalBackup(storageKey, data, label = '手動バックアップ') {
+  const snapshot = JSON.parse(JSON.stringify(data))
+  const savedAt = new Date().toISOString()
+  const key = `${storageKey}:manual:${savedAt}:${Math.random().toString(36).slice(2, 8)}`
+  const db = await openDatabase()
+  try {
+    await writeRecord(db, BACKUP_STORE_NAME, {
+      key,
+      storageKey,
+      data: snapshot,
+      savedAt,
+      backupType: MANUAL_BACKUP_TYPE,
+      label,
+    })
+    const transaction = db.transaction(BACKUP_STORE_NAME, 'readonly')
+    const allBackups = await requestResult(transaction.objectStore(BACKUP_STORE_NAME).getAll())
+    const ownManualBackups = allBackups
+      .filter((item) => item.storageKey === storageKey && item.backupType === MANUAL_BACKUP_TYPE)
+      .sort((a, b) => String(b.savedAt).localeCompare(String(a.savedAt)))
+    for (const oldBackup of ownManualBackups.slice(MANUAL_BACKUP_RETENTION_COUNT)) {
+      const deleteTransaction = db.transaction(BACKUP_STORE_NAME, 'readwrite')
+      deleteTransaction.objectStore(BACKUP_STORE_NAME).delete(oldBackup.key)
+      await new Promise((resolve, reject) => {
+        deleteTransaction.oncomplete = resolve
+        deleteTransaction.onerror = () => reject(deleteTransaction.error)
+        deleteTransaction.onabort = () => reject(deleteTransaction.error)
+      })
+    }
+    return { key, storageKey, data: snapshot, savedAt, backupType: MANUAL_BACKUP_TYPE, label }
+  } finally {
+    db.close()
+  }
+}
+
+/** 自動・手動バックアップの履歴を新しい順に返す。 */
+export async function getLocalBackupHistory(storageKey) {
+  const db = await openDatabase()
+  try {
+    const transaction = db.transaction(BACKUP_STORE_NAME, 'readonly')
+    const allBackups = await requestResult(transaction.objectStore(BACKUP_STORE_NAME).getAll())
+    return allBackups
+      .filter((item) => item.storageKey === storageKey && item.data)
+      .map((item) => ({
+        key: item.key,
+        savedAt: item.savedAt || null,
+        backupType: item.backupType || AUTO_BACKUP_TYPE,
+        label: item.label || '日次自動バックアップ',
+        data: item.data,
+      }))
+      .sort((a, b) => String(b.savedAt).localeCompare(String(a.savedAt)))
   } finally {
     db.close()
   }
