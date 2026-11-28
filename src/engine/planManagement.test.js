@@ -46,3 +46,12 @@ test('existing plan library retains inactive snapshots and refreshes the active 
   assert.equal(data.savedPlans.find((plan) => plan.planId === 'p1').data.assets[0].balance, 900)
   assert.equal(data.savedPlans.find((plan) => plan.planId === 'p2').data.assets[0].balance, 2)
 })
+
+test('comparison summary displays financial assets as negative when unresolved cash shortfall exceeds assets', () => {
+  const summary = summarizePlanResult({
+    summary: { startYear: 2026, startFinancialAssets: 100, endFinancialAssets: 10000, endCashShortfall: 25000, endYear: 2027 },
+    annualResults: [{ year: 2027, closingFinancialAssets: 10000, cumulativeCashShortfall: 25000, ages: [] }],
+  })
+  assert.equal(summary.minimumAssets, -15000)
+  assert.equal(summary.finalAssets, -15000)
+})

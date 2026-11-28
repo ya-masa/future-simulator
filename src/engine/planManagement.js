@@ -1,3 +1,4 @@
+import { getComparableFinancialAssets } from './comparisonValues.js'
 import { getAge, parseDate } from './dateUtils.js'
 
 /** 保存プランのデータ管理。既存の世帯データ本体を変更せず、スナップショットを扱う。 */
@@ -69,11 +70,11 @@ export function summarizePlanResult(result, input = null) {
     : (first?.ages || [])
   const candidates = [{
     year: result.summary.startYear,
-    amount: Number(result.summary.startFinancialAssets || 0),
+    amount: getComparableFinancialAssets(result.summary.startFinancialAssets, 0),
     ages: startAges,
   }, ...annual.map((row) => ({
     year: row.year,
-    amount: Number(row.closingFinancialAssets || 0),
+    amount: getComparableFinancialAssets(row.closingFinancialAssets, row.cumulativeCashShortfall),
     ages: row.ages || [],
   }))]
   let minimum = candidates[0]
@@ -84,7 +85,7 @@ export function summarizePlanResult(result, input = null) {
     minimumAssets: minimum.amount,
     minimumYear: minimum.year,
     minimumAges: minimum.ages.map((person) => ({ name: person.name, age: person.age })),
-    finalAssets: Number(result.summary.endFinancialAssets || 0),
+    finalAssets: getComparableFinancialAssets(result.summary.endFinancialAssets, result.summary.endCashShortfall ?? result.summary.totalCashShortfall),
     finalYear: result.summary.endYear,
   }
 }
