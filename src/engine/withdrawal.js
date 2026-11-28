@@ -125,7 +125,7 @@ export function applyAutomaticFunding(cashAssets = [], investmentAssets = [], re
   const nextCash = cashAssets.map((asset) => ({ ...asset }))
   const nextInvestments = investmentAssets.map((asset) => ({ ...asset }))
   for (const type of ['cash', 'deposit']) {
-    for (const asset of nextCash.filter((item) => item.assetType === type)) {
+    for (const asset of nextCash.filter((item) => item.assetType === type && item.withdrawalEnabled !== false)) {
       if (remaining <= 0.000001) break
       const available = Math.max(0, Number(asset.balance || 0))
       const amount = Math.min(available, remaining)
