@@ -854,3 +854,52 @@ test('V1.10.0 契約満期イベントは解約不可またはロック期間中
   assert.equal(result.endingAssets.some((asset) => asset.assetId === 'locked-contract'), true)
   assert.equal(result.endingAssets.find((asset) => asset.assetId === 'dep-lock')?.balance, 0)
 })
+
+
+test('V1.11.0 購入イベントは購入元不足分を現金→預貯金→投資資産から補充して成立する', () => {
+  const input = structuredClone(baseInput)
+  input.incomeRecords = []
+  input.expenseRecords = []
+  input.assets = [
+    { assetId: 'cash-purchase-fund', assetType: 'cash', balance: 50000, annualReturn: 0 },
+    { assetId: 'deposit-purchase-fund', assetType: 'deposit', balance: 30000, annualReturn: 0 },
+    { assetId: 'investment-purchase-fund', assetType: 'investment', balance: 20000, withdrawalEnabled: true, withdrawalPriority: 1, annualReturn: 0 },
+  ]
+  input.futureEvents = [{ eventId: 'purchase-shortage', enabled: true, type: 'assetPurchase', eventDate: '2026-02-01', purchaseAmount: 100000, sourceAssetCategory: 'cash', destinationAssetCategory: 'investment', purchaseName: '購入資産' }]
+  const result = runSimulation(input)
+  assert.equal(result.endingAssets.find((asset) => asset.assetId === 'cash-purchase-fund')?.balance, 0)
+  assert.equal(result.endingAssets.find((asset) => asset.assetId === 'deposit-purchase-fund')?.balance, 0)
+  assert.equal(result.endingAssets.find((asset) => asset.assetId === 'investment-purchase-fund')?.balance, 100000)
+  assert.equal(result.annualResults[0].cashShortfall, 0)
+})
+
+test('V1.11.0 契約開始時の元本不足は自動補充し、全額確保できなければ契約を成立させない', () => {
+  const input = structuredClone(baseInput)
+  input.incomeRecords = []
+  input.expenseRecords = []
+  input.assets = [
+    { assetId: 'cash-contract-fund', assetType: 'cash', balance: 50000, annualReturn: 0 },
+    { assetId: 'deposit-contract-fund', assetType: 'deposit', balance: 30000, annualReturn: 0 },
+    { assetId: 'investment-contract-fund', assetType: 'investment', balance: 20000, withdrawalEnabled: true, withdrawalPriority: 1, annualReturn: 0 },
+    { assetId: 'contract-funded', assetType: 'termDeposit', name: '開始月契約', principalAmount: 100000, contractDate: '2026-01-01', maturityDate: '2028-01-01', maturityPayoutMode: 'amount', maturityPayoutAmount: 110000, purchaseSourceAssetCategory: 'cash' },
+  ]
+  const result = runSimulation(input)
+  assert.ok(result.endingAssets.find((asset) => asset.assetId === 'contract-funded')?.balance >= 100000)
+  assert.equal(result.endingAssets.find((asset) => asset.assetId === 'cash-contract-fund')?.balance, 0)
+  assert.equal(result.endingAssets.find((asset) => asset.assetId === 'deposit-contract-fund')?.balance, 0)
+})
+
+
+test('V1.11.0 契約元本を全額調達できない場合は資産を作らず不足額を記録する', () => {
+  const input = structuredClone(baseInput)
+  input.incomeRecords = []
+  input.expenseRecords = []
+  input.assets = [
+    { assetId: 'cash-insufficient-contract', assetType: 'cash', balance: 20000, annualReturn: 0 },
+    { assetId: 'unfunded-contract', assetType: 'termDeposit', name: '資金不足契約', principalAmount: 100000, contractDate: '2026-01-01', maturityDate: '2030-01-01', maturityPayoutMode: 'amount', maturityPayoutAmount: 120000, purchaseSourceAssetCategory: 'cash' },
+  ]
+  const result = runSimulation(input)
+  assert.equal(result.endingAssets.some((asset) => asset.assetId === 'unfunded-contract'), false)
+  assert.ok(result.annualResults[0].cashShortfall >= 80000)
+  assert.equal(result.endingAssets.find((asset) => asset.assetId === 'cash-insufficient-contract')?.balance, 20000)
+})

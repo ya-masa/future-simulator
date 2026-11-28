@@ -5,7 +5,7 @@ import { getAge, parseDate } from './dateUtils.js'
 import { growCashAssets, growInvestmentAssets } from './investment.js'
 import { getMinimumCashReserve, getScheduledContributions, limitContributionsToAvailableCash, withdrawInvestmentAssets, applyAutomaticFunding } from './withdrawal.js'
 import { getContractAssetBalanceAtDate, isContractAsset } from './assetModels.js'
-import { applyEventIncome, debitIndividualAsset, debitAssetCategory, assetMatchesEventCategory, resolveEventAsset, transferBetweenAssets, sortEventsForMonth } from './futureEvents.js'
+import { applyEventIncome, debitAssetCategory, assetMatchesEventCategory, resolveEventAsset, transferBetweenAssets, sortEventsForMonth } from './futureEvents.js'
 import { getLiabilityWarnings, prepareLiabilities, processMonthlyLiabilities, sumLiabilityBalances } from './debt.js'
 
 function monthStart(year, month) {
@@ -225,34 +225,42 @@ export function runSimulation(input) {
     }
 
     const monthKey = `${year}-${String(date.getMonth() + 1).padStart(2, '0')}`
-    // 契約開始月に一時払元本を資産へ計上。開始前の契約は初期残高として契約日から評価済み。
-    for (const asset of investmentAssets) {
+    // V1.11.0：契約開始時の元本も、指定元資産→自動補充の順で全額確保できた場合だけ計上する。
+    let contractFundingShortfall = 0
+    const failedContractIds = []
+    for (const asset of [...investmentAssets]) {
       if (!isContractAsset(asset) || asset.assetType === 'savingsInsurance' && asset.premiumMode === 'recurring') continue
       if (!asset.contractDate || asset.contractDate.slice(0, 7) !== monthKey || asset.contractDate.slice(0, 7) < input.household.startDate.slice(0, 7)) continue
       if (asset.contractPrincipalApplied) continue
       const principal = Math.max(0, Number(asset.principalAmount || 0))
       const sourceCategory = asset.purchaseSourceAssetCategory || 'cash'
-      let remaining = principal
-      const sourceCashType = sourceCategory === 'deposit' ? 'deposit' : sourceCategory === 'cash' ? 'cash' : null
-      if (sourceCashType) {
-        for (const source of cashAssets.filter((item) => item.assetType === sourceCashType)) {
-          const amount = Math.min(Math.max(0, Number(source.balance || 0)), remaining)
-          source.balance -= amount
-          remaining -= amount
-          if (remaining <= 0.000001) break
+      const workingCash = cashAssets.map((item) => ({ ...item }))
+      const workingInvestments = investmentAssets.map((item) => ({ ...item }))
+      const allWorkingAssets = [...workingCash, ...workingInvestments]
+      const debit = debitAssetCategory(allWorkingAssets, sourceCategory, '', principal, { forFunding: true, date })
+      let nextCash = workingCash
+      let nextInvestments = workingInvestments
+      let shortage = debit.shortage
+      if (shortage > 0.000001 && input.conditions?.withdrawal?.enabled !== false) {
+        const funding = applyAutomaticFunding(workingCash, workingInvestments, shortage, date)
+        nextCash = funding.cashAssets
+        nextInvestments = funding.investmentAssets
+        shortage = funding.unfundedAmount
+      }
+      if (shortage <= 0.000001) {
+        cashAssets = nextCash
+        investmentAssets = nextInvestments
+        const fundedContract = investmentAssets.find((item) => item.assetId === asset.assetId)
+        if (fundedContract) {
+          fundedContract.balance = principal
+          fundedContract.contractPrincipalApplied = true
         }
       } else {
-        const sourceAssets = investmentAssets.filter((item) => item.assetId !== asset.assetId && (sourceCategory === 'bond' ? item.assetType === 'bond' : sourceCategory === 'investment' ? !['bond', 'termDeposit', 'savingsInsurance'].includes(item.assetType) : item.assetType === 'other'))
-        for (const source of sourceAssets) {
-          const amount = Math.min(Math.max(0, Number(source.balance || 0)), remaining)
-          source.balance -= amount
-          remaining -= amount
-          if (remaining <= 0.000001) break
-        }
+        contractFundingShortfall += shortage
+        failedContractIds.push(asset.assetId)
       }
-      asset.balance = principal
-      asset.contractPrincipalApplied = true
     }
+    if (failedContractIds.length) investmentAssets = investmentAssets.filter((asset) => !failedContractIds.includes(asset.assetId))
     // 月初時点ですでに存在する現金不足を記録し、今月新たに増えた不足分だけを集計する。
     const cashDeficitAtMonthStart = Math.max(0, -sumBalances(cashAssets))
     // 債券利息は登録された初回受取日を起点に、年1回／年2回の周期で計上する。
@@ -345,37 +353,58 @@ export function runSimulation(input) {
       const amount = Math.max(0, Number(event.amount ?? event.incomeAmount ?? event.expenseAmount ?? event.purchaseAmount ?? event.saleAmount ?? event.principalAmount ?? 0))
       if (['assetPurchase', 'bondPurchase'].includes(event.type)) {
         const purchaseAmount = Math.max(0, Number(event.purchaseAmount || 0))
-        const allAssetsForPurchase = [...cashAssets, ...investmentAssets]
-        const source = resolveEventAsset(allAssetsForPurchase, event.sourceAssetCategory, event.sourceAssetId)
-        const destination = resolveEventAsset(allAssetsForPurchase, event.destinationAssetCategory, event.destinationAssetId)
-        const categorySourceAssets = event.sourceAssetCategory
-          ? allAssetsForPurchase.filter((asset) => assetMatchesEventCategory(asset, event.sourceAssetCategory))
-          : []
-        const sourceAvailable = event.sourceAssetCategory
-          ? categorySourceAssets.reduce((sum, asset) => sum + Math.max(0, Number(asset.balance || 0)), 0)
-          : Number(source?.balance || 0)
-        if (!source || (destination && source.assetId === destination.assetId) || purchaseAmount <= 0 || sourceAvailable < purchaseAmount) { eventFundingShortfall += purchaseAmount; continue }
-        if (event.sourceAssetCategory) debitAssetCategory(allAssetsForPurchase, event.sourceAssetCategory, '', purchaseAmount)
-        else source.balance = Number(source.balance || 0) - purchaseAmount
-        if (destination) {
-          destination.balance = Number(destination.balance || 0) + purchaseAmount
+        const workingCash = cashAssets.map((item) => ({ ...item }))
+        const workingInvestments = investmentAssets.map((item) => ({ ...item }))
+        const allWorkingAssets = [...workingCash, ...workingInvestments]
+        const source = resolveEventAsset(allWorkingAssets, event.sourceAssetCategory, event.sourceAssetId)
+        const destination = resolveEventAsset(allWorkingAssets, event.destinationAssetCategory, event.destinationAssetId)
+        if (!source || (destination && source.assetId === destination.assetId) || purchaseAmount <= 0) {
+          eventFundingShortfall += purchaseAmount
+          continue
+        }
+        const debit = event.sourceAssetCategory
+          ? debitAssetCategory(allWorkingAssets, event.sourceAssetCategory, '', purchaseAmount, { forFunding: true, date })
+          : debitAssetCategory(allWorkingAssets, '', event.sourceAssetId, purchaseAmount, { forFunding: true, date })
+        let nextCash = workingCash
+        let nextInvestments = workingInvestments
+        let shortage = debit.shortage
+        if (shortage > 0.000001 && input.conditions?.withdrawal?.enabled !== false) {
+          const funding = applyAutomaticFunding(workingCash, workingInvestments, shortage, date)
+          nextCash = funding.cashAssets
+          nextInvestments = funding.investmentAssets
+          shortage = funding.unfundedAmount
+        }
+        // A purchase is committed only when the entire amount is funded; otherwise
+        // the working copies are discarded so partial debits cannot disappear.
+        if (shortage > 0.000001) {
+          eventFundingShortfall += shortage
+          continue
+        }
+        cashAssets = nextCash
+        investmentAssets = nextInvestments
+        const allCommittedAssets = [...cashAssets, ...investmentAssets]
+        const committedDestination = destination
+          ? allCommittedAssets.find((item) => item.assetId === destination.assetId)
+          : null
+        if (committedDestination) {
+          committedDestination.balance = Number(committedDestination.balance || 0) + purchaseAmount
           if (event.type === 'bondPurchase') {
-            destination.assetType = 'bond'
-            destination.couponRate = event.couponInputMode === 'amount' ? 0 : Number(event.couponRate || 0)
-            destination.couponInputMode = event.couponInputMode || 'rate'
-            destination.annualCouponAmount = Number(event.annualCouponAmount || 0)
-            destination.faceAmount = Number(event.faceAmount || event.purchaseAmount || 0)
-            destination.firstCouponDate = event.firstCouponDate || defaultFirstCouponDate(event.eventDate, event.couponPaymentFrequency)
-            destination.couponPaymentFrequency = Number(event.couponPaymentFrequency || 2)
-            destination.couponTaxMode = event.couponTaxMode || 'gross'
-            destination.couponDestinationAssetId = event.couponDestinationAssetId || ''
-            destination.maturityDestinationAssetId = event.maturityDestinationAssetId || ''
-            destination.maturityDate = event.maturityDate || null
-            destination.purchaseDate = event.eventDate
+            committedDestination.assetType = 'bond'
+            committedDestination.couponRate = event.couponInputMode === 'amount' ? 0 : Number(event.couponRate || 0)
+            committedDestination.couponInputMode = event.couponInputMode || 'rate'
+            committedDestination.annualCouponAmount = Number(event.annualCouponAmount || 0)
+            committedDestination.faceAmount = Number(event.faceAmount || event.purchaseAmount || 0)
+            committedDestination.firstCouponDate = event.firstCouponDate || defaultFirstCouponDate(event.eventDate, event.couponPaymentFrequency)
+            committedDestination.couponPaymentFrequency = Number(event.couponPaymentFrequency || 2)
+            committedDestination.couponTaxMode = event.couponTaxMode || 'gross'
+            committedDestination.couponDestinationAssetId = event.couponDestinationAssetId || ''
+            committedDestination.maturityDestinationAssetId = event.maturityDestinationAssetId || ''
+            committedDestination.maturityDate = event.maturityDate || null
+            committedDestination.purchaseDate = event.eventDate
           }
         } else {
           const assetType = event.type === 'bondPurchase' ? 'bond' : (['cash','deposit','investment','bond'].includes(event.destinationAssetCategory) ? event.destinationAssetCategory : event.purchaseAssetType || 'investment')
-          const purchasedAsset = { assetId: `future-${event.eventId}`, assetType: ['cash','deposit'].includes(assetType) ? assetType : assetType === 'bond' ? 'bond' : 'investment', name: event.purchaseName || event.name || '将来購入資産', balance: purchaseAmount, annualReturn: assetType === 'bond' ? 0 : Number(event.annualReturn || 0), monthlyContribution: 0, taxCategory: event.purchaseTaxCategory || 'other', nisaType: event.purchaseTaxCategory === 'nisa' ? (['accumulation','growth'].includes(event.purchaseNisaType) ? event.purchaseNisaType : '') : '', withdrawalPriority: 50, withdrawalEnabled: true, purchaseDate: event.eventDate, couponRate: event.couponInputMode === 'amount' ? 0 : Number(event.couponRate || 0), couponInputMode: event.couponInputMode || 'rate', annualCouponAmount: Number(event.annualCouponAmount || 0), faceAmount: Number(event.faceAmount || purchaseAmount), firstCouponDate: event.firstCouponDate || defaultFirstCouponDate(event.eventDate, event.couponPaymentFrequency), couponPaymentFrequency: Number(event.couponPaymentFrequency || 2), couponTaxMode: event.couponTaxMode || 'gross', couponDestinationAssetId: event.couponDestinationAssetId || '', maturityDestinationAssetId: event.maturityDestinationAssetId || '', maturityDate: event.maturityDate || null, maturityDestinationAssetId: event.maturityDestinationAssetId || '', couponFrequency: Number(event.couponFrequency || 12) }
+          const purchasedAsset = { assetId: `future-${event.eventId}`, assetType: ['cash','deposit'].includes(assetType) ? assetType : assetType === 'bond' ? 'bond' : 'investment', name: event.purchaseName || event.name || '将来購入資産', balance: purchaseAmount, annualReturn: assetType === 'bond' ? 0 : Number(event.annualReturn || 0), monthlyContribution: 0, taxCategory: event.purchaseTaxCategory || 'other', nisaType: event.purchaseTaxCategory === 'nisa' ? (['accumulation','growth'].includes(event.purchaseNisaType) ? event.purchaseNisaType : '') : '', withdrawalPriority: 50, withdrawalEnabled: true, purchaseDate: event.eventDate, couponRate: event.couponInputMode === 'amount' ? 0 : Number(event.couponRate || 0), couponInputMode: event.couponInputMode || 'rate', annualCouponAmount: Number(event.annualCouponAmount || 0), faceAmount: Number(event.faceAmount || purchaseAmount), firstCouponDate: event.firstCouponDate || defaultFirstCouponDate(event.eventDate, event.couponPaymentFrequency), couponPaymentFrequency: Number(event.couponPaymentFrequency || 2), couponTaxMode: event.couponTaxMode || 'gross', couponDestinationAssetId: event.couponDestinationAssetId || '', maturityDestinationAssetId: event.maturityDestinationAssetId || '', maturityDate: event.maturityDate || null, couponFrequency: Number(event.couponFrequency || 12) }
           if (['cash','deposit'].includes(purchasedAsset.assetType)) cashAssets.push(purchasedAsset); else investmentAssets.push(purchasedAsset)
         }
         processedPurchaseEvents.add(event.eventId)
@@ -387,11 +416,11 @@ export function runSimulation(input) {
       } else if (event.type === 'expense') {
         const allAssets = [...cashAssets, ...investmentAssets]
         const result = event.sourceAssetCategory
-          ? debitAssetCategory(allAssets, event.sourceAssetCategory, event.sourceAssetId, amount)
-          : debitIndividualAsset(allAssets, event.sourceAssetId, amount)
+          ? debitAssetCategory(allAssets, event.sourceAssetCategory, event.sourceAssetId, amount, { forFunding: true, date })
+          : debitAssetCategory(allAssets, '', event.sourceAssetId, amount, { forFunding: true, date })
         individualEventExpense += amount
         if (result.shortage > 0) {
-          const funding = applyAutomaticFunding(cashAssets, investmentAssets, result.shortage)
+          const funding = applyAutomaticFunding(cashAssets, investmentAssets, result.shortage, date)
           cashAssets = funding.cashAssets
           investmentAssets = funding.investmentAssets
           eventFundingShortfall += funding.unfundedAmount
@@ -403,7 +432,7 @@ export function runSimulation(input) {
         const result = transferBetweenAssets(allAssets, source?.assetId || '', destination?.assetId || '', amount)
         if (result.shortage > 0) eventFundingShortfall += result.shortage
       } else if (event.type === 'autoFunding') {
-        const funding = applyAutomaticFunding(cashAssets, investmentAssets, amount)
+        const funding = applyAutomaticFunding(cashAssets, investmentAssets, amount, date)
         cashAssets = funding.cashAssets
         investmentAssets = funding.investmentAssets
         eventFundingShortfall += funding.unfundedAmount
@@ -456,7 +485,7 @@ export function runSimulation(input) {
     const cashExpenseShortage = applyCashflowToAssetType(cashAssets, 'cash', -cashExpense)
     const depositExpenseShortage = applyCashflowToAssetType(cashAssets, 'deposit', -depositExpense)
     if (input.conditions?.withdrawal?.enabled !== false) {
-      const funding = applyAutomaticFunding(cashAssets, investmentAssets, cashExpenseShortage + depositExpenseShortage)
+      const funding = applyAutomaticFunding(cashAssets, investmentAssets, cashExpenseShortage + depositExpenseShortage, date)
       cashAssets = funding.cashAssets
       investmentAssets = funding.investmentAssets
       cashflowFundingShortfall = funding.unfundedAmount
@@ -554,7 +583,7 @@ export function runSimulation(input) {
       const cashBeforeWithdrawal = sumBalances(cashAssets)
       const requestedWithdrawal = cashBeforeWithdrawal < refillStart ? Math.max(0, refillTarget - cashBeforeWithdrawal) : 0
       if (requestedWithdrawal > 0) {
-        const withdrawalResult = withdrawInvestmentAssets(investmentAssets, requestedWithdrawal)
+        const withdrawalResult = withdrawInvestmentAssets(investmentAssets, requestedWithdrawal, date)
         investmentAssets = withdrawalResult.assets
         monthlyWithdrawals = withdrawalResult.withdrawals
         const refillCashAsset = ensureCashAsset(cashAssets, 'cash')
@@ -585,7 +614,7 @@ export function runSimulation(input) {
     yearDebtInterest += debtResult.interest
     yearWithdrawals.push(...monthlyWithdrawals)
     // 年間の現金不足は、その年に新たに発生した不足額の合計。最大不足残高ではない。
-    yearCashShortfall += monthlyCashShortfall + eventFundingShortfall + cashflowFundingShortfall
+    yearCashShortfall += monthlyCashShortfall + eventFundingShortfall + cashflowFundingShortfall + contractFundingShortfall
 
     // 年末時点で全員が人物別の計算終了年齢に達していれば、世帯の試算を終了する。
     if (date.getMonth() === 11 && (input.persons || []).length > 0) {

@@ -103,3 +103,12 @@ test('資産購入・売却・満期イベントは頻度値にかかわらず�
     assert.equal(eventAppliesInMonth(event, '2028-06'), false, type)
   }
 })
+
+
+test('V1.11.0 ロック中の契約資産を指定したイベント支出は直接引き落とさない', () => {
+  const data = [{ assetId: 'locked-event', assetType: 'termDeposit', balance: 100000, maturityDate: '2030-01-01', earlySurrenderAllowed: false }]
+  const result = debitAssetCategory(data, '', 'locked-event', 50000, { forFunding: true, date: new Date('2027-01-01T00:00:00') })
+  assert.equal(result.applied, 0)
+  assert.equal(result.shortage, 50000)
+  assert.equal(data[0].balance, 100000)
+})

@@ -1,3 +1,5 @@
+import { isAssetEligibleForAutomaticFunding } from './withdrawal.js'
+
 /** Future event asset movements. Legacy individual asset IDs remain supported. */
 /** Major asset groups used by event input. Legacy asset IDs remain supported. */
 export const EVENT_ASSET_CATEGORIES = [
@@ -29,10 +31,16 @@ export function resolveEventAsset(assets = [], category = '', legacyAssetId = ''
   )[0]
 }
 
-export function debitAssetCategory(assets = [], category = '', legacyAssetId = '', amount = 0) {
+export function debitAssetCategory(assets = [], category = '', legacyAssetId = '', amount = 0, options = {}) {
   const value = Math.max(0, Number(amount || 0))
-  if (legacyAssetId) return debitIndividualAsset(assets, legacyAssetId, value)
-  const matches = (assets || []).filter((asset) => assetMatchesEventCategory(asset, category))
+  if (legacyAssetId) {
+    const source = findAsset(assets, legacyAssetId)
+    if (options.forFunding && source && !isAssetEligibleForAutomaticFunding(source, options.date)) {
+      return { ok: false, applied: 0, shortage: value, reason: '契約の解約条件または取り崩し設定により利用できない資産です。', source }
+    }
+    return debitIndividualAsset(assets, legacyAssetId, value)
+  }
+  const matches = (assets || []).filter((asset) => assetMatchesEventCategory(asset, category) && (!options.forFunding || isAssetEligibleForAutomaticFunding(asset, options.date)))
     .sort((a, b) => Number(a.withdrawalPriority ?? 50) - Number(b.withdrawalPriority ?? 50))
   let remaining = value
   let applied = 0

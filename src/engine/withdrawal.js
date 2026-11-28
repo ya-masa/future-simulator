@@ -1,3 +1,5 @@
+import { isContractAsset } from './assetModels.js'
+
 /**
  * 投資資産の自動取り崩し。
  * 売却は収入ではなく、投資資産から現金への振替として扱う。
@@ -47,21 +49,63 @@ function priorityFor(asset) {
   return asset.assetType === 'bond' ? 30 : 10
 }
 
-export function withdrawInvestmentAssets(assets, requestedAmount) {
+function asDate(value) {
+  if (value instanceof Date) return value
+  if (!value) return null
+  const date = new Date(`${value}T00:00:00`)
+  return Number.isFinite(date.getTime()) ? date : null
+}
+
+/** Returns the amount available from an investment asset without violating contract lockups. */
+export function isAssetEligibleForAutomaticFunding(asset, date = null) {
+  if (asset?.assetType === 'cash' || asset?.assetType === 'deposit') return true
+  return availableInvestmentFunding(asset, date) > 0
+}
+
+function availableInvestmentFunding(asset, date) {
+  if (asset.withdrawalEnabled === false) return 0
+  const balance = Math.max(0, Number(asset.balance || 0))
+  if (!isContractAsset(asset)) return balance
+  const currentDate = asDate(date)
+  const maturityDate = asDate(asset.maturityDate)
+  // Maturity proceeds are transferred by the maturity handler; do not fund from the
+  // contract earlier in the same simulation month or the payout could be counted twice.
+  if (maturityDate && currentDate && maturityDate.getFullYear() * 12 + maturityDate.getMonth() <= currentDate.getFullYear() * 12 + currentDate.getMonth()) return 0
+  if (!asset.earlySurrenderAllowed) return 0
+  const lockupUntil = asDate(asset.lockupUntil)
+  if (lockupUntil && currentDate && currentDate < lockupUntil) return 0
+  const surrenderValue = Math.max(0, Number(asset.surrenderValueAmount || 0))
+  return surrenderValue > 0 ? Math.min(balance, surrenderValue) : 0
+}
+
+function debitInvestmentFunding(asset, requested, available) {
+  const amount = Math.min(Math.max(0, Number(requested || 0)), Math.max(0, Number(available || 0)))
+  if (isContractAsset(asset)) {
+    const balance = Math.max(0, Number(asset.balance || 0))
+    const fundingValue = Math.max(0, Number(available || 0))
+    const balanceReduction = fundingValue > 0 ? balance * (amount / fundingValue) : 0
+    asset.balance = Math.max(0, balance - balanceReduction)
+  } else {
+    asset.balance = Math.max(0, Number(asset.balance || 0) - amount)
+  }
+  return amount
+}
+
+export function withdrawInvestmentAssets(assets, requestedAmount, date = null) {
   let remaining = Math.max(0, Number(requestedAmount || 0))
   const withdrawals = []
   const ordered = (assets || [])
     .map((asset, index) => ({ asset, index }))
-    .filter(({ asset }) => asset.withdrawalEnabled !== false && Number(asset.balance || 0) > 0)
+    .filter(({ asset }) => availableInvestmentFunding(asset, date) > 0)
     .sort((a, b) => priorityFor(a.asset) - priorityFor(b.asset) || a.index - b.index)
 
   const nextAssets = (assets || []).map((asset) => ({ ...asset }))
   for (const { asset, index } of ordered) {
     if (remaining <= 0.000001) break
-    const available = Math.max(0, Number(nextAssets[index].balance || 0))
+    const available = availableInvestmentFunding(nextAssets[index], date)
     const amount = Math.min(available, remaining)
     if (amount <= 0) continue
-    nextAssets[index].balance = available - amount
+    debitInvestmentFunding(nextAssets[index], amount, available)
     withdrawals.push({ assetId: asset.assetId, name: asset.name || '投資資産', amount })
     remaining -= amount
   }
@@ -75,7 +119,7 @@ export function withdrawInvestmentAssets(assets, requestedAmount) {
 }
 
 /** Spend by configured funding priority: cash, deposits, then eligible investment assets. */
-export function applyAutomaticFunding(cashAssets = [], investmentAssets = [], requestedAmount = 0) {
+export function applyAutomaticFunding(cashAssets = [], investmentAssets = [], requestedAmount = 0, date = null) {
   let remaining = Math.max(0, Number(requestedAmount || 0))
   const details = []
   const nextCash = cashAssets.map((asset) => ({ ...asset }))
@@ -92,13 +136,14 @@ export function applyAutomaticFunding(cashAssets = [], investmentAssets = [], re
     }
   }
   const eligible = nextInvestments.map((asset, index) => ({ asset, index }))
-    .filter(({ asset }) => asset.withdrawalEnabled !== false && Number(asset.balance || 0) > 0)
+    .filter(({ asset }) => availableInvestmentFunding(asset, date) > 0)
     .sort((a, b) => priorityFor(a.asset) - priorityFor(b.asset) || a.index - b.index)
   for (const { asset } of eligible) {
     if (remaining <= 0.000001) break
-    const amount = Math.min(Math.max(0, Number(asset.balance || 0)), remaining)
+    const available = availableInvestmentFunding(asset, date)
+    const amount = Math.min(available, remaining)
     if (!amount) continue
-    asset.balance -= amount
+    debitInvestmentFunding(asset, amount, available)
     remaining -= amount
     details.push({ assetId: asset.assetId, name: asset.name || '投資資産', amount, assetType: 'investment' })
   }
